@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { api, EventPayload } from '../../services/api';
+import { api } from '../../services/api';
+import { EventPayload } from '../../types';
 
 export default function EventTester() {
   const [eventType, setEventType] = useState<EventPayload['eventType']>('cart');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<any>(null);
+  
   const [formData, setFormData] = useState({
     userId: `test_user_${Date.now()}`,
     userPhone: '5511999999999',

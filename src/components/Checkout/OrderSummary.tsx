@@ -1,11 +1,4 @@
-interface OrderSummaryProps {
-  productData: {
-    name: string;
-    value: number;
-    currency: string;
-  };
-  discountCode?: string;
-}
+import { OrderSummaryProps } from "@/types";
 
 export default function OrderSummary({ productData, discountCode }: OrderSummaryProps) {
   return (

@@ -1,7 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { EventMonitor, PurchaseEvent, PurchaseStatus } from './monitor/EventMonitor';
+import { EventMonitor} from './monitor/EventMonitor';
+import { PurchaseEvent } from './types';
+import { PurchaseStatus } from './constants';
+
 
 const app = express();
 const port = process.env.PORT || 3000;

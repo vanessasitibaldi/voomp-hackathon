@@ -1,36 +1,11 @@
 import { useState, useEffect } from 'react';
-import { api, EventPayload } from '../../services/api';
+import { api } from '../../services/api';
+import { CheckoutFormData, EventPayload } from '../../types';
 import PersonalData from './PersonalData';
 import Address from './Address';
 import Payment from './Payment';
 import OrderSummary from './OrderSummary';
 
-interface CheckoutFormData {
-  // Dados pessoais
-  fullName: string;
-  email: string;
-  phone: string;
-  cpf: string;
-  
-  // Endereço
-  cep: string;
-  address: string;
-  number: string;
-  complement: string;
-  city: string;
-  neighborhood: string;
-  state: string;
-  
-  // Pagamento
-  paymentMethod: 'credit_card' | 'boleto';
-  cardNumber: string;
-  cardName: string;
-  cardMonth: string;
-  cardYear: string;
-  cardCvv: string;
-  installments: number;
-  discountCode: string;
-}
 
 export default function CheckoutForm() {
   const [step, setStep] = useState(1);

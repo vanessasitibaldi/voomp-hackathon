@@ -1,9 +1,4 @@
-interface AddressProps {
-  data: any;
-  onChange: (data: any) => void;
-  onBack: () => void;
-  onNext: () => void;
-}
+import { AddressProps } from '../../types';
 
 export default function Address({ data, onChange, onBack, onNext }: AddressProps) {
   const handleChange = (field: string, value: string) => {

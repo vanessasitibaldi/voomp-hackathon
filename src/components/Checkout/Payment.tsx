@@ -1,13 +1,6 @@
+import { PaymentProps } from '@/types';
 import { useState } from 'react';
 
-interface PaymentProps {
-  data: any;
-  onChange: (data: any) => void;
-  productData: any;
-  onBack: () => void;
-  onSubmit: (hasError: boolean) => void;
-  loading: boolean;
-}
 
 export default function Payment({ 
   data, 

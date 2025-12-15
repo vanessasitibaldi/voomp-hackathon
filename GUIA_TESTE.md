@@ -51,7 +51,7 @@ npm run dev:frontend
 
 #### Opção A: Testar via Interface Web (Checkout)
 
-1. Acesse: **http://localhost:5173**
+1. Acesse: **http://localhost:5174**
 2. Você verá a página de checkout com o layout do Voomp.
 
 **Fluxo de Teste:**
