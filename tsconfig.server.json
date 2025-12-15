@@ -1,6 +1,6 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
+    "target": "ES2020",
     "module": "commonjs",
     "lib": ["ES2020"],
     "jsx": "preserve",
@@ -9,8 +9,22 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "allowImportingTsExtensions": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "types": ["node"]
   },
   "include": ["src/server.ts", "src/monitor/**/*"],
-  "exclude": ["src/components/**/*", "src/**/*.tsx", "src/main.tsx", "src/App.tsx", "src/services/api.ts"]
+  "exclude": ["src/components/**/*", "src/**/*.tsx", "src/main.tsx", "src/App.tsx", "src/services/api.ts", "node_modules", "dist"],
+  "ts-node": {
+    "transpileOnly": true,
+    "compilerOptions": {
+      "module": "commonjs"
+    }
+  }
 }

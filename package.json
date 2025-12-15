@@ -8,7 +8,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build:frontend": "vite build",
     "start": "node dist/server.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only --project tsconfig.server.json src/server.ts",
     "dev:frontend": "vite",
     "watch": "tsc -p tsconfig.server.json --watch"
   },
