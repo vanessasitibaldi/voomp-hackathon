@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "jsx": "preserve",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "allowImportingTsExtensions": false,
+    "types": ["node"]
+  },
+  "include": ["src/server.ts", "src/monitor/**/*"],
+  "exclude": ["src/components/**/*", "src/**/*.tsx", "src/main.tsx", "src/App.tsx", "src/services/api.ts"]
+}

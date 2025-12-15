@@ -1,0 +1,291 @@
+import axios from 'axios';
+import { EventEmitter } from 'events';
+
+export enum PurchaseStatus {
+  COLD = 'cold',           // cart sem begin_checkout
+  WARM = 'warm',           // begin_checkout sem add_payment_info
+  HOT = 'hot',             // add_payment_info sem purchase
+  COMPLETED = 'completed'  // purchase
+}
+
+export interface PaymentError {
+  code?: string;
+  message?: string;
+  type?: 'payment' | 'validation' | 'network' | 'gateway' | 'unknown';
+  gateway?: string;
+  paymentMethod?: string;
+}
+
+export interface PurchaseEvent {
+  userId: string;
+  userPhone: string;
+  userName?: string;
+  eventType: 'cart' | 'begin_checkout' | 'add_payment_info' | 'purchase';
+  status: PurchaseStatus;
+  
+  productId?: string;
+  productName?: string;
+  productCategory?: string;
+  cartValue?: number;
+  currency?: string;
+  
+  paymentMethod?: string;
+  paymentGateway?: string;
+  installments?: number;
+  discountCode?: string;
+  discountValue?: number;
+  
+  error?: PaymentError;
+  hasError?: boolean;
+  
+  source?: string;
+  campaign?: string;
+  
+  timestamp: Date;
+  createdAt: Date;
+  metadata?: Record<string, any>;
+}
+
+export interface CartData {
+  id: string;
+  userId: string;
+  userPhone: string;
+  userName?: string;
+  status: PurchaseStatus;
+  createdAt: Date;
+  lastEventAt: Date;
+  
+  productId?: string;
+  productName?: string;
+  cartValue?: number;
+  currency?: string;
+  
+  source?: string;
+  campaign?: string;
+  
+  hasErrors?: boolean;
+  errorCount?: number;
+  lastError?: PaymentError;
+  
+  events: PurchaseEvent[];
+}
+
+export class EventMonitor extends EventEmitter {
+  private n8nWebhookUrl: string;
+  private checkInterval: number;
+  private carts: Map<string, CartData> = new Map();
+  private intervalId?: NodeJS.Timeout;
+
+  // Tempos para recuperação
+  private readonly COLD_TIMEOUT_HOURS = 24;  // cart → 24h
+  private readonly WARM_TIMEOUT_HOURS = 3;   // begin_checkout → 3h
+  private readonly HOT_TIMEOUT_HOURS = 1;    // add_payment_info → 1h
+
+  constructor(n8nWebhookUrl: string, checkInterval: number = 3600000) {
+    super();
+    this.n8nWebhookUrl = n8nWebhookUrl;
+    this.checkInterval = checkInterval;
+  }
+
+  start(): void {
+    console.log('🚀 Monitor iniciado');
+    this.intervalId = setInterval(() => {
+      this.checkRecovery();
+    }, this.checkInterval);
+  }
+
+  stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = undefined;
+    }
+  }
+
+  async processEvent(event: PurchaseEvent): Promise<void> {
+    const cartId = `${event.userId}_${event.productId || 'default'}`;
+    let cart = this.carts.get(cartId);
+
+    if (!cart) {
+      cart = {
+        id: cartId,
+        userId: event.userId,
+        userPhone: event.userPhone,
+        userName: event.userName,
+        status: PurchaseStatus.COLD,
+        createdAt: event.createdAt,
+        lastEventAt: event.timestamp,
+        productId: event.productId,
+        productName: event.productName,
+        cartValue: event.cartValue,
+        currency: event.currency || 'BRL',
+        source: event.source,
+        campaign: event.campaign,
+        hasErrors: false,
+        errorCount: 0,
+        events: []
+      };
+      this.carts.set(cartId, cart);
+    }
+
+    // Atualiza informações
+    if (event.productName) cart.productName = event.productName;
+    if (event.cartValue) cart.cartValue = event.cartValue;
+    if (event.source) cart.source = event.source;
+    
+    // Processa erros
+    if (event.hasError || event.error) {
+      cart.hasErrors = true;
+      cart.errorCount = (cart.errorCount || 0) + 1;
+      cart.lastError = event.error;
+    }
+    
+    // Adiciona evento
+    cart.lastEventAt = event.timestamp;
+    cart.events.push(event);
+    cart.status = this.determineStatus(cart);
+
+    // Verifica se houve recovery antes (para purchase)
+    const hadRecovery = event.eventType === 'purchase' 
+      ? cart.events.some(e => e.metadata?.recoverySent === true)
+      : false;
+
+    // Envia para n8n
+    await this.sendToN8N({
+      action: event.eventType,
+      status: cart.status,
+      cartId: cart.id,
+      userId: cart.userId,
+      userPhone: cart.userPhone,
+      userName: cart.userName,
+      productName: cart.productName,
+      cartValue: cart.cartValue,
+      currency: cart.currency,
+      hasError: event.hasError || !!event.error,
+      error: event.error,
+      source: cart.source,
+      campaign: cart.campaign,
+      // Flag de recuperação (apenas para purchase)
+      ...(event.eventType === 'purchase' && {
+        recovered: hadRecovery,
+        recoveryValue: hadRecovery ? cart.cartValue : 0,
+        recoveryStatus: hadRecovery ? cart.status : null
+      }),
+      timestamp: event.timestamp.toISOString()
+    });
+
+    // Se purchase com sucesso, remove da memória
+    if (event.eventType === 'purchase' && !event.hasError) {
+      this.carts.delete(cartId);
+    }
+  }
+
+  private determineStatus(cart: CartData): PurchaseStatus {
+    const hasPurchase = cart.events.some(e => e.eventType === 'purchase');
+    const hasAddPaymentInfo = cart.events.some(e => e.eventType === 'add_payment_info');
+    const hasBeginCheckout = cart.events.some(e => e.eventType === 'begin_checkout');
+
+    if (hasPurchase) return PurchaseStatus.COMPLETED;
+    if (hasAddPaymentInfo) return PurchaseStatus.HOT;
+    if (hasBeginCheckout) return PurchaseStatus.WARM;
+    return PurchaseStatus.COLD;
+  }
+
+  private async checkRecovery(): Promise<void> {
+    const now = new Date();
+    const cartsToRecover: CartData[] = [];
+
+    for (const cart of this.carts.values()) {
+      if (cart.status === PurchaseStatus.COMPLETED) {
+        this.carts.delete(cart.id);
+        continue;
+      }
+
+      const hoursSinceLastEvent = (now.getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
+      let needsRecovery = false;
+      let timeoutHours = 0;
+
+      switch (cart.status) {
+        case PurchaseStatus.COLD:
+          timeoutHours = this.COLD_TIMEOUT_HOURS;
+          break;
+        case PurchaseStatus.WARM:
+          timeoutHours = this.WARM_TIMEOUT_HOURS;
+          break;
+        case PurchaseStatus.HOT:
+          timeoutHours = this.HOT_TIMEOUT_HOURS;
+          break;
+      }
+
+      needsRecovery = hoursSinceLastEvent >= timeoutHours && !this.hasSentRecovery(cart);
+
+      if (needsRecovery) {
+        cartsToRecover.push(cart);
+      }
+    }
+
+    for (const cart of cartsToRecover) {
+      await this.sendRecovery(cart);
+    }
+  }
+
+  private hasSentRecovery(cart: CartData): boolean {
+    return cart.events.some(e => e.metadata?.recoverySent === true);
+  }
+
+  private async sendRecovery(cart: CartData): Promise<void> {
+    const hoursSinceLastEvent = (new Date().getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
+    
+    await this.sendToN8N({
+      action: 'recovery',
+      status: cart.status,
+      cartId: cart.id,
+      userId: cart.userId,
+      userPhone: cart.userPhone,
+      userName: cart.userName,
+      productName: cart.productName,
+      cartValue: cart.cartValue,
+      currency: cart.currency,
+      hoursSinceLastEvent: Math.floor(hoursSinceLastEvent),
+      timestamp: new Date().toISOString()
+    });
+
+    // Marca que enviou
+    cart.events.push({
+      userId: cart.userId,
+      userPhone: cart.userPhone,
+      eventType: 'cart',
+      status: cart.status,
+      timestamp: new Date(),
+      createdAt: new Date(),
+      metadata: { recoverySent: true }
+    } as PurchaseEvent);
+  }
+
+  private async sendToN8N(data: any): Promise<void> {
+    try {
+      await axios.post(this.n8nWebhookUrl, data, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000
+      });
+      console.log(`✅ Enviado para n8n: ${data.action} - ${data.status}`);
+    } catch (error: any) {
+      console.error(`❌ Erro ao enviar para n8n: ${error.message}`);
+    }
+  }
+
+  getStats() {
+    const stats = {
+      totalCarts: this.carts.size,
+      cold: 0,
+      warm: 0,
+      hot: 0,
+      completed: 0
+    };
+
+    for (const cart of this.carts.values()) {
+      stats[cart.status]++;
+    }
+
+    return stats;
+  }
+}
