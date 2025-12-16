@@ -1,28 +1,30 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { EventMonitor} from './monitor/EventMonitor';
+import { EventMonitor } from './monitor/EventMonitor';
 import { PurchaseEvent } from './types';
 import { PurchaseStatus } from './constants';
 
-
 const app = express();
 const port = process.env.PORT || 3000;
+const n8nWebhookUrl = 'http://localhost:5678/webhook';
+const checkInterval = 3600000; // 1 hora
 
-// Configuração
-const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
-const checkInterval = parseInt(process.env.CHECK_INTERVAL || '3600000'); // 1 hora
-
-// Inicializa monitor
 const monitor = new EventMonitor(n8nWebhookUrl, checkInterval);
 monitor.start();
 
-// Middleware
-app.use(cors());
+const corsOptions = {
+  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
-// Health check
-app.get('/health', (req: express.Request, res: express.Response) => {
+app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
@@ -30,52 +32,16 @@ app.get('/health', (req: express.Request, res: express.Response) => {
   });
 });
 
-// Endpoint para receber eventos da plataforma
-app.post('/webhook/event', async (req: express.Request, res: express.Response) => {
+app.post('/event', async (req, res) => {
   try {
-    const {
-      // Campos obrigatórios
-      userId,
-      userPhone,
-      eventType,
-      
-      // Informações do usuário
-      userName,
-      
-      // Informações do produto
-      productId,
-      productName,
-      productCategory,
-      cartValue,
-      currency,
-      
-      // Informações de pagamento
-      paymentMethod,
-      paymentGateway,
-      installments,
-      discountCode,
-      discountValue,
-      
-      // Informações de erro (especialmente importante para add_payment_info)
-      error,
-      hasError,
-      
-      // Informações de origem
-      source,
-      campaign,
-      
-      // Metadados (pode conter campos extras como utmSource, userAgent, etc)
-      metadata
-    } = req.body;
+    const { userId, userPhone, eventType, ...rest } = req.body;
 
-    // Validação básica
-    if (!userId || !userPhone || !eventType) {
+    if (!userId || !eventType) {
       return res.status(400).json({ 
-        error: 'Campos obrigatórios: userId, userPhone, eventType' 
+        error: 'Campos obrigatórios: userId e eventType' 
       });
     }
 
-    // Mapeia eventType para status inicial (será recalculado pelo monitor)
     const statusMap: Record<string, PurchaseStatus> = {
       'cart': PurchaseStatus.COLD,
       'begin_checkout': PurchaseStatus.WARM,
@@ -85,58 +51,33 @@ app.post('/webhook/event', async (req: express.Request, res: express.Response) =
 
     const event: PurchaseEvent = {
       userId,
-      userPhone,
-      userName,
+      userPhone: userPhone || '',
+      userName: rest.userName,
       eventType,
       status: statusMap[eventType] || PurchaseStatus.COLD,
-      
-      // Informações do produto
-      productId,
-      productName,
-      productCategory,
-      cartValue,
-      currency: currency || 'BRL',
-      
-      // Informações de pagamento
-      paymentMethod,
-      paymentGateway,
-      installments,
-      discountCode,
-      discountValue,
-      
-      // Informações de erro
-      error: error ? {
-        code: error.code,
-        message: error.message,
-        type: error.type || 'unknown',
-        gateway: error.gateway,
-        paymentMethod: error.paymentMethod
+      productId: rest.productId,
+      productName: rest.productName,
+      productCategory: rest.productCategory,
+      cartValue: rest.cartValue,
+      currency: rest.currency || 'BRL',
+      paymentMethod: rest.paymentMethod,
+      paymentGateway: rest.paymentGateway,
+      installments: rest.installments,
+      discountCode: rest.discountCode,
+      discountValue: rest.discountValue,
+      error: rest.error ? {
+        code: rest.error.code,
+        message: rest.error.message,
+        type: rest.error.type || 'unknown',
+        gateway: rest.error.gateway,
+        paymentMethod: rest.error.paymentMethod
       } : undefined,
-      hasError: hasError || !!error,
-      
-      // Informações de origem
-      source,
-      campaign,
-      
-      // Timestamps
+      hasError: rest.hasError || !!rest.error,
+      source: rest.source,
+      campaign: rest.campaign,
       timestamp: new Date(),
       createdAt: new Date(),
-      
-      // Metadados (pode conter campos extras como utmSource, userAgent, etc)
-      metadata: {
-        ...metadata,
-        // Inclui campos extras no metadata se foram enviados
-        ...(req.body.utmSource && { utmSource: req.body.utmSource }),
-        ...(req.body.utmMedium && { utmMedium: req.body.utmMedium }),
-        ...(req.body.utmCampaign && { utmCampaign: req.body.utmCampaign }),
-        ...(req.body.userAgent && { userAgent: req.body.userAgent }),
-        ...(req.body.ipAddress && { ipAddress: req.body.ipAddress }),
-        ...(req.body.deviceType && { deviceType: req.body.deviceType }),
-        ...(req.body.timeOnPage && { timeOnPage: req.body.timeOnPage }),
-        ...(req.body.timeSinceLastEvent && { timeSinceLastEvent: req.body.timeSinceLastEvent }),
-        ...(req.body.checkoutStep && { checkoutStep: req.body.checkoutStep }),
-        ...(req.body.checkoutUrl && { checkoutUrl: req.body.checkoutUrl })
-      }
+      metadata: rest.metadata || {}
     };
 
     await monitor.processEvent(event);
@@ -145,11 +86,10 @@ app.post('/webhook/event', async (req: express.Request, res: express.Response) =
       success: true, 
       message: 'Evento processado com sucesso',
       eventId: `${userId}_${Date.now()}`,
-      status: event.status,
-      hasError: event.hasError
+      status: event.status
     });
   } catch (error: any) {
-    console.error('Erro ao processar webhook:', error);
+    console.error('Erro ao processar evento:', error);
     res.status(500).json({ 
       error: 'Erro ao processar evento',
       message: error.message 
@@ -157,21 +97,17 @@ app.post('/webhook/event', async (req: express.Request, res: express.Response) =
   }
 });
 
-// Endpoint para obter estatísticas
-app.get('/stats', (req: express.Request, res: express.Response) => {
+app.get('/stats', (req, res) => {
   res.json(monitor.getStats());
 });
 
-// Serve arquivos estáticos do frontend em produção
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../public')));
-  
-  app.get('*', (req: express.Request, res: express.Response) => {
+  app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
   });
 }
 
-// Inicia servidor
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
   console.log(`📡 Webhook n8n: ${n8nWebhookUrl}`);

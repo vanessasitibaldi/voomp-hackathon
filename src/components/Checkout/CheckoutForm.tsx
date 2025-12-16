@@ -21,7 +21,6 @@ export default function CheckoutForm() {
     installmentValue: 199.70
   };
 
-  // Envia evento quando muda de etapa
   const sendEvent = async (eventType: EventPayload['eventType'], hasError = false) => {
     try {
       const payload: EventPayload = {
@@ -41,13 +40,12 @@ export default function CheckoutForm() {
       };
 
       await api.sendEvent(payload);
-      console.log(`✅ Evento ${eventType} enviado com sucesso`);
+      console.log(`✅ Evento ${eventType} enviado`);
     } catch (error) {
       console.error(`❌ Erro ao enviar evento ${eventType}:`, error);
     }
   };
 
-  // Envia evento de carrinho quando componente monta
   useEffect(() => {
     sendEvent('cart');
   }, []);

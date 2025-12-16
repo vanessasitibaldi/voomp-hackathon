@@ -1,13 +1,11 @@
 import axios from 'axios';
 import { EventPayload } from '../types';
 
-const API_URL = 'http://localhost:3000';
-
-
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export const api = {
   sendEvent: async (event: EventPayload) => {
-    const response = await axios.post(`${API_URL}/webhook/event`, event);
+    const response = await axios.post(`${API_URL}/event`, event);
     return response.data;
   },
   
