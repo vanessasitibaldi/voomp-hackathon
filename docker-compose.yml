@@ -12,6 +12,11 @@ services:
       - pgdata:/var/lib/postgresql/data
     networks:
       - voomp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   n8n:
     image: n8nio/n8n:latest
@@ -33,9 +38,16 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - voomp-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5678 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   evolution-db:
     image: postgres:15-alpine
@@ -50,6 +62,11 @@ services:
       - evolution_db_data:/var/lib/postgresql/data
     networks:
       - voomp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   evolution-redis:
     image: redis:7-alpine
@@ -58,6 +75,11 @@ services:
       - evolution_redis_data:/data
     networks:
       - voomp-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   evolution:
     image: atendai/evolution-api:latest
@@ -71,13 +93,16 @@ services:
       - DATABASE_PROVIDER=postgresql
       - DATABASE_CONNECTION_URI=postgresql://evolution:evolution123@evolution-db:5432/evolution?schema=public
       - REDIS_ENABLED=true
-      - REDIS_URI=redis://evolution-redis:6379
+      - REDIS_URI=redis://evolution-redis:6379/0
+      - REDIS_PREFIX=evolution
     volumes:
       - evolution_instances:/evolution/instances
       - evolution_store:/evolution/store
     depends_on:
-      - evolution-db
-      - evolution-redis
+      evolution-db:
+        condition: service_started
+      evolution-redis:
+        condition: service_healthy
     networks:
       - voomp-network
 
