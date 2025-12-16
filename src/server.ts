@@ -7,8 +7,8 @@ import { PurchaseStatus } from './constants';
 
 const app = express();
 const port = process.env.PORT || 3000;
-const n8nWebhookUrl = 'http://localhost:5678/webhook';
-const checkInterval = 3600000; // 1 hora
+const n8nWebhookUrl = 'http://localhost:5678/webhook/event';
+const checkInterval = 3600000; 
 
 const monitor = new EventMonitor(n8nWebhookUrl, checkInterval);
 monitor.start();
@@ -24,13 +24,6 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
 
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    stats: monitor.getStats()
-  });
-});
 
 app.post('/event', async (req, res) => {
   try {
@@ -97,9 +90,6 @@ app.post('/event', async (req, res) => {
   }
 });
 
-app.get('/stats', (req, res) => {
-  res.json(monitor.getStats());
-});
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../public')));

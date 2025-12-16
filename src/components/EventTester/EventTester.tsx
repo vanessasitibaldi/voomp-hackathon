@@ -46,20 +46,6 @@ export default function EventTester() {
     }
   };
 
-  const handleGetStats = async () => {
-    setLoading(true);
-    try {
-      const stats = await api.getStats();
-      setResponse({ success: true, data: stats });
-    } catch (error: any) {
-      setResponse({ 
-        success: false, 
-        error: error.response?.data || error.message 
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="event-tester">
@@ -144,13 +130,13 @@ export default function EventTester() {
           >
             {loading ? 'Enviando...' : 'Enviar Evento'}
           </button>
-          <button 
+          {/* <button 
             onClick={handleGetStats} 
             disabled={loading}
             className="btn-secondary"
           >
             Ver Estatísticas
-          </button>
+          </button> */}
         </div>
       </div>
 

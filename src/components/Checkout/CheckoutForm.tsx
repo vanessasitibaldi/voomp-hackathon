@@ -5,13 +5,15 @@ import PersonalData from './PersonalData';
 import Address from './Address';
 import Payment from './Payment';
 import OrderSummary from './OrderSummary';
+import { generateUserId } from '../../utils/userId';
 
 
 export default function CheckoutForm() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<Partial<CheckoutFormData>>({});
   const [loading, setLoading] = useState(false);
-  const [userId] = useState(() => `user_${Date.now()}`);
+  
+  const [userId] = useState(() => generateUserId());
 
   const productData = {
     name: 'Oferta PNE 3.0 | Julho/25',
@@ -22,23 +24,20 @@ export default function CheckoutForm() {
   };
 
   const sendEvent = async (eventType: EventPayload['eventType'], hasError = false) => {
+   
     try {
       const payload: EventPayload = {
         userId,
         userPhone: formData.phone || '',
-        userName: formData.fullName,
+        userName: productData.name || '',
         eventType,
-        productName: productData.name,
-        cartValue: productData.value,
-        currency: productData.currency,
-        paymentMethod: formData.paymentMethod,
-        installments: formData.installments,
-        discountCode: formData.discountCode,
+        productName: productData.name || '',
+        cartValue: productData.value || 0,
+        currency: productData.currency || 'BRL',
         hasError,
         source: 'checkout_page',
-        campaign: 'pne-3.0-julho-2025'
       };
-
+ console.log('>>>>> payload:', payload);
       await api.sendEvent(payload);
       console.log(`✅ Evento ${eventType} enviado`);
     } catch (error) {

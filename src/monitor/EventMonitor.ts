@@ -82,29 +82,33 @@ export class EventMonitor extends EventEmitter {
       ? cart.events.some(e => e.metadata?.recoverySent === true)
       : false;
 
-    // Envia para n8n
-    await this.sendToN8N({
+    // Garante que o timestamp seja sempre uma string ISO válida
+    const timestamp = event.timestamp && event.timestamp instanceof Date 
+      ? event.timestamp.toISOString() 
+      : new Date().toISOString();
+
+    // Calcula horas desde o último evento
+    const hoursSinceLastEvent = cart.lastEventAt && cart.lastEventAt instanceof Date
+      ? Math.floor((new Date().getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60))
+      : 0;
+
+    // Prepara payload em camelCase (padrão JSON) - o n8n pode mapear para PascalCase na planilha
+    const payload = {
+      timestamp: timestamp,
       action: event.eventType,
       status: cart.status,
       cartId: cart.id,
-      userId: cart.userId,
-      userPhone: cart.userPhone,
-      userName: cart.userName,
-      productName: cart.productName,
-      cartValue: cart.cartValue,
-      currency: cart.currency,
-      hasError: event.hasError || !!event.error,
-      error: event.error,
-      source: cart.source,
-      campaign: cart.campaign,
-      // Flag de recuperação (apenas para purchase)
-      ...(event.eventType === 'purchase' && {
-        recovered: hadRecovery,
-        recoveryValue: hadRecovery ? cart.cartValue : 0,
-        recoveryStatus: hadRecovery ? cart.status : null
-      }),
-      timestamp: event.timestamp.toISOString()
-    });
+      userId: cart.userId || '',
+      userPhone: cart.userPhone || '',
+      userName: cart.userName || '',
+      productName: cart.productName || '',
+      cartValue: cart.cartValue || 0,
+      currency: cart.currency || 'BRL',
+      hoursSinceLastEvent: hoursSinceLastEvent
+    };
+
+    // Envia para n8n
+    await this.sendToN8N(payload);
 
     // Se purchase com sucesso, remove da memória
     if (event.eventType === 'purchase' && !event.hasError) {
@@ -166,21 +170,25 @@ export class EventMonitor extends EventEmitter {
   }
 
   private async sendRecovery(cart: CartData): Promise<void> {
-    const hoursSinceLastEvent = (new Date().getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
+    const hoursSinceLastEvent = Math.floor((new Date().getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60));
+    const timestamp = new Date().toISOString();
     
-    await this.sendToN8N({
+    // Prepara payload em camelCase (padrão JSON) - o n8n pode mapear para PascalCase na planilha
+    const payload = {
+      timestamp: timestamp,
       action: 'recovery',
       status: cart.status,
       cartId: cart.id,
-      userId: cart.userId,
-      userPhone: cart.userPhone,
-      userName: cart.userName,
-      productName: cart.productName,
-      cartValue: cart.cartValue,
-      currency: cart.currency,
-      hoursSinceLastEvent: Math.floor(hoursSinceLastEvent),
-      timestamp: new Date().toISOString()
-    });
+      userId: cart.userId || '',
+      userPhone: cart.userPhone || '',
+      userName: cart.userName || '',
+      productName: cart.productName || '',
+      cartValue: cart.cartValue || 0,
+      currency: cart.currency || 'BRL',
+      hoursSinceLastEvent: hoursSinceLastEvent
+    };
+
+    await this.sendToN8N(payload);
 
     // Marca que enviou
     cart.events.push({
@@ -196,29 +204,28 @@ export class EventMonitor extends EventEmitter {
 
   private async sendToN8N(data: any): Promise<void> {
     try {
-      await axios.post(this.n8nWebhookUrl, data, {
+      // Garante que o timestamp sempre existe
+      if (!data.timestamp) {
+        data.timestamp = new Date().toISOString();
+      }
+
+      // Log do payload completo para debug
+      console.log(`📤 Enviando para n8n:`, JSON.stringify(data, null, 2));
+
+      const response = await axios.post(this.n8nWebhookUrl, data, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 10000
       });
-      console.log(`✅ Enviado para n8n: ${data.action} - ${data.status}`);
+      
+      console.log(`✅ Enviado para n8n: ${data.action} - ${data.status} - timestamp: ${data.timestamp}`);
+      console.log(`📥 Resposta n8n:`, response.status, response.statusText);
     } catch (error: any) {
       console.error(`❌ Erro ao enviar para n8n: ${error.message}`);
+      if (error.response) {
+        console.error(`📥 Resposta de erro:`, error.response.status, error.response.data);
+      }
+      console.error(`📤 Payload que falhou:`, JSON.stringify(data, null, 2));
     }
   }
 
-  getStats() {
-    const stats = {
-      totalCarts: this.carts.size,
-      cold: 0,
-      warm: 0,
-      hot: 0,
-      completed: 0
-    };
-
-    for (const cart of this.carts.values()) {
-      stats[cart.status]++;
-    }
-
-    return stats;
-  }
 }
