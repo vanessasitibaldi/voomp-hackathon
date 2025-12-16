@@ -1,4 +1,4 @@
-import { PurchaseStatus } from "@/constants";
+import { PurchaseStatus } from "../constants";
 
 export interface PaymentError {
   code?: string;
@@ -12,23 +12,30 @@ export interface PurchaseEvent {
   userId: string;
   userPhone: string;
   userName?: string;
-  eventType: 'cart' | 'begin_checkout' | 'add_payment_info' | 'purchase';
+  userEmail?: string;
+  userCPF?: string;
+  eventType: 'cart' | 'begin_checkout' | 'add_payment_info' | 'purchase' | 'error';
   status: PurchaseStatus;
   
   productId?: string;
   productName?: string;
-  productCategory?: string;
+  productAuthor?: string;
+  productType?: 'pós-graduação' | 'curso livre';
   cartValue?: number;
+  totalValue?: number;
   currency?: string;
   
   paymentMethod?: string;
   paymentGateway?: string;
   installments?: number;
+  hasInstallments?: boolean;
   discountCode?: string;
   discountValue?: number;
   
   error?: PaymentError;
   hasError?: boolean;
+  statusCode?: number;
+  errorMessage?: string;
   
   source?: string;
   campaign?: string;
@@ -43,13 +50,18 @@ export interface CartData {
   userId: string;
   userPhone: string;
   userName?: string;
+  userEmail?: string;
+  userCPF?: string;
   status: PurchaseStatus;
   createdAt: Date;
   lastEventAt: Date;
   
   productId?: string;
   productName?: string;
+  productAuthor?: string;
+  productType?: 'pós-graduação' | 'curso livre';
   cartValue?: number;
+  totalValue?: number;
   currency?: string;
   
   source?: string;

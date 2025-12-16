@@ -16,64 +16,162 @@ export default function CheckoutForm() {
   const [userId] = useState(() => generateUserId());
 
   const productData = {
+    id: 'pne_3_0_julho_2025',
     name: 'Oferta PNE 3.0 | Julho/25',
+    author: 'Prof. João Silva',
+    type: 'pós-graduação' as const,
     value: 1997.00,
     currency: 'BRL',
     installments: 12,
     installmentValue: 199.70
   };
 
-  const sendEvent = async (eventType: EventPayload['eventType'], hasError = false) => {
-   
+  // CART - ao entrar na tela
+  useEffect(() => {
+    const sendCartEvent = async () => {
+      try {
+        await api.sendEvent({
+          userId,
+          userPhone: '',
+          eventType: 'cart',
+          productId: productData.id,
+          productName: productData.name,
+          productAuthor: productData.author,
+          productType: productData.type,
+          cartValue: productData.value,
+          currency: productData.currency
+        });
+        console.log('📦 CART enviado');
+      } catch (error) {
+        console.error('❌ Erro cart:', error);
+      }
+    };
+    sendCartEvent();
+  }, []);
+
+  // BEGIN_CHECKOUT - ao clicar continuar no endereço (passo 2)
+  const handleBeginCheckout = async () => {
     try {
-      const payload: EventPayload = {
+      await api.sendEvent({
         userId,
         userPhone: formData.phone || '',
-        userName: productData.name || '',
-        eventType,
-        productName: productData.name || '',
-        cartValue: productData.value || 0,
-        currency: productData.currency || 'BRL',
-        hasError,
-        source: 'checkout_page',
-      };
- console.log('>>>>> payload:', payload);
-      await api.sendEvent(payload);
-      console.log(`✅ Evento ${eventType} enviado`);
+        userName: formData.fullName || '',
+        userEmail: formData.email || '',
+        userCPF: formData.cpf || '',
+        eventType: 'begin_checkout',
+        productId: productData.id,
+        productName: productData.name,
+        productAuthor: productData.author,
+        productType: productData.type,
+        cartValue: productData.value,
+        currency: productData.currency
+      });
+      console.log('🛒 BEGIN_CHECKOUT enviado');
+      setStep(3);
     } catch (error) {
-      console.error(`❌ Erro ao enviar evento ${eventType}:`, error);
+      console.error('❌ Erro begin_checkout:', error);
+      setStep(3);
     }
   };
 
-  useEffect(() => {
-    sendEvent('cart');
-  }, []);
-
-  // Quando entra no checkout
-  const handleBeginCheckout = () => {
-    setStep(2);
-    sendEvent('begin_checkout');
-  };
-
-  // Quando adiciona info de pagamento
-  const handleAddPaymentInfo = async () => {
-    await sendEvent('add_payment_info');
-    setStep(3);
-  };
-
-  // Quando finaliza compra
-  const handlePurchase = async (hasError = false) => {
+  // ADD_PAYMENT_INFO + PURCHASE - ao clicar "comprar agora" (passo 3)
+  const handlePurchase = async () => {
     setLoading(true);
     try {
-      await sendEvent('purchase', hasError);
-      if (!hasError) {
+      // 1. Envia ADD_PAYMENT_INFO
+      await api.sendEvent({
+        userId,
+        userPhone: formData.phone || '',
+        userName: formData.fullName || '',
+        userEmail: formData.email || '',
+        userCPF: formData.cpf || '',
+        eventType: 'add_payment_info',
+        productId: productData.id,
+        productName: productData.name,
+        productAuthor: productData.author,
+        productType: productData.type,
+        cartValue: productData.value,
+        currency: productData.currency,
+        paymentMethod: formData.paymentMethod || 'credit_card',
+        installments: productData.installments,
+        hasInstallments: productData.installments > 1
+      });
+      console.log('💳 ADD_PAYMENT_INFO enviado');
+
+      // 2. Simula chamada API de pagamento
+      const paymentSuccess = Math.random() > 0.2; // 80% sucesso
+
+      if (paymentSuccess) {
+        // SUCCESS: envia PURCHASE
+        const discountValue = formData.discountCode ? productData.value * 0.1 : 0;
+        const totalValue = productData.value - discountValue;
+
+        await api.sendEvent({
+          userId,
+          userPhone: formData.phone || '',
+          userName: formData.fullName || '',
+          userEmail: formData.email || '',
+          userCPF: formData.cpf || '',
+          eventType: 'purchase',
+          productId: productData.id,
+          productName: productData.name,
+          productAuthor: productData.author,
+          productType: productData.type,
+          cartValue: productData.value,
+          totalValue: totalValue,
+          discountValue: discountValue,
+          discountCode: formData.discountCode || '',
+          currency: productData.currency,
+          paymentMethod: formData.paymentMethod || 'credit_card',
+          installments: productData.installments,
+          hasInstallments: productData.installments > 1
+        });
+        console.log('✅ PURCHASE enviado');
+        
         alert('Compra realizada com sucesso!');
-        // Reset form
         setStep(1);
         setFormData({});
+      } else {
+        // ERROR: envia evento de erro
+        await api.sendEvent({
+          userId,
+          userPhone: formData.phone || '',
+          userName: formData.fullName || '',
+          userEmail: formData.email || '',
+          userCPF: formData.cpf || '',
+          eventType: 'error',
+          productId: productData.id,
+          productName: productData.name,
+          productAuthor: productData.author,
+          productType: productData.type,
+          cartValue: productData.value,
+          statusCode: 400,
+          errorMessage: 'Cartão recusado - saldo insuficiente',
+          paymentMethod: formData.paymentMethod || 'credit_card'
+        });
+        console.log('❌ ERROR enviado');
+        
+        alert('Erro ao processar pagamento: Cartão recusado');
       }
-    } catch (error) {
-      console.error('Erro ao finalizar compra:', error);
+    } catch (error: any) {
+      console.error('❌ Erro ao processar:', error);
+      
+      // Envia ERROR em caso de exceção
+      try {
+        await api.sendEvent({
+          userId,
+          userPhone: formData.phone || '',
+          userName: formData.fullName || '',
+          eventType: 'error',
+          productName: productData.name,
+          cartValue: productData.value,
+          statusCode: 500,
+          errorMessage: error.message || 'Erro desconhecido'
+        });
+      } catch (e) {
+        console.error('Erro ao enviar evento de erro:', e);
+      }
+      
       alert('Erro ao processar compra. Tente novamente.');
     } finally {
       setLoading(false);
@@ -94,21 +192,21 @@ export default function CheckoutForm() {
             <PersonalData
               data={formData}
               onChange={setFormData}
-              onNext={handleBeginCheckout}
+              onNext={() => setStep(2)}
             />
           )}
 
-          {/* Passo 2: Endereço */}
+          {/* Passo 2: Endereço - BEGIN_CHECKOUT ao continuar */}
           {step === 2 && (
             <Address
               data={formData}
               onChange={setFormData}
               onBack={() => setStep(1)}
-              onNext={handleAddPaymentInfo}
+              onNext={handleBeginCheckout}
             />
           )}
 
-          {/* Passo 3: Pagamento */}
+          {/* Passo 3: Pagamento - ADD_PAYMENT_INFO + PURCHASE ao finalizar */}
           {step === 3 && (
             <Payment
               data={formData}

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { EventEmitter } from 'events';
+import { randomUUID } from 'crypto';
 import { PurchaseStatus } from '../constants';
 import { PurchaseEvent, CartData } from '../types';
 
@@ -9,10 +10,9 @@ export class EventMonitor extends EventEmitter {
   private carts: Map<string, CartData> = new Map();
   private intervalId?: NodeJS.Timeout;
 
-  // Tempos para recuperação
-  private readonly COLD_TIMEOUT_HOURS = 24;  // cart → 24h
-  private readonly WARM_TIMEOUT_HOURS = 3;   // begin_checkout → 3h
-  private readonly HOT_TIMEOUT_HOURS = 1;    // add_payment_info → 1h
+  private readonly COLD_TIMEOUT_HOURS = 24;
+  private readonly WARM_TIMEOUT_HOURS = 3;
+  private readonly HOT_TIMEOUT_HOURS = 1;
 
   constructor(n8nWebhookUrl: string, checkInterval: number = 3600000) {
     super();
@@ -43,16 +43,9 @@ export class EventMonitor extends EventEmitter {
         id: cartId,
         userId: event.userId,
         userPhone: event.userPhone,
-        userName: event.userName,
         status: PurchaseStatus.COLD,
         createdAt: event.createdAt,
         lastEventAt: event.timestamp,
-        productId: event.productId,
-        productName: event.productName,
-        cartValue: event.cartValue,
-        currency: event.currency || 'BRL',
-        source: event.source,
-        campaign: event.campaign,
         hasErrors: false,
         errorCount: 0,
         events: []
@@ -60,57 +53,71 @@ export class EventMonitor extends EventEmitter {
       this.carts.set(cartId, cart);
     }
 
-    // Atualiza informações
-    if (event.productName) cart.productName = event.productName;
-    if (event.cartValue) cart.cartValue = event.cartValue;
-    if (event.source) cart.source = event.source;
+    Object.assign(cart, {
+      userName: event.userName || cart.userName,
+      userEmail: event.userEmail || cart.userEmail,
+      userCPF: event.userCPF || cart.userCPF,
+      productId: event.productId || cart.productId,
+      productName: event.productName || cart.productName,
+      productAuthor: event.productAuthor || cart.productAuthor,
+      productType: event.productType || cart.productType,
+      cartValue: event.cartValue || cart.cartValue,
+      totalValue: event.totalValue || cart.totalValue,
+      currency: event.currency || cart.currency || 'BRL',
+    });
     
-    // Processa erros
     if (event.hasError || event.error) {
       cart.hasErrors = true;
       cart.errorCount = (cart.errorCount || 0) + 1;
       cart.lastError = event.error;
     }
     
-    // Adiciona evento
     cart.lastEventAt = event.timestamp;
     cart.events.push(event);
     cart.status = this.determineStatus(cart);
 
-    // Verifica se houve recovery antes (para purchase)
-    const hadRecovery = event.eventType === 'purchase' 
-      ? cart.events.some(e => e.metadata?.recoverySent === true)
-      : false;
+    const hadRecovery = cart.events.some(e => e.metadata?.recoverySent);
+    const recoveryEvent = hadRecovery ? cart.events.find(e => e.metadata?.recoverySent) : null;
+    const hoursSinceLastEvent = Math.floor((Date.now() - cart.lastEventAt.getTime()) / 3600000);
 
-    // Garante que o timestamp seja sempre uma string ISO válida
-    const timestamp = event.timestamp && event.timestamp instanceof Date 
-      ? event.timestamp.toISOString() 
-      : new Date().toISOString();
-
-    // Calcula horas desde o último evento
-    const hoursSinceLastEvent = cart.lastEventAt && cart.lastEventAt instanceof Date
-      ? Math.floor((new Date().getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60))
-      : 0;
-
-    // Prepara payload em camelCase (padrão JSON) - o n8n pode mapear para PascalCase na planilha
-    const payload = {
-      timestamp: timestamp,
+    const payload: any = {
+      timestamp: event.timestamp.toISOString(),
       action: event.eventType,
       status: cart.status,
       cartId: cart.id,
-      userId: cart.userId || '',
-      userPhone: cart.userPhone || '',
-      userName: cart.userName || '',
-      productName: cart.productName || '',
+      userId: cart.userId,
+      userPhone: cart.userPhone,
+      userName: cart.userName,
+      userEmail: cart.userEmail,
+      userCPF: cart.userCPF,
+      productId: cart.productId,
+      productName: cart.productName,
+      productAuthor: cart.productAuthor,
+      productType: cart.productType,
       cartValue: cart.cartValue || 0,
-      currency: cart.currency || 'BRL',
-      hoursSinceLastEvent: hoursSinceLastEvent
+      totalValue: event.totalValue || cart.totalValue || 0,
+      currency: cart.currency,
+      paymentMethod: event.paymentMethod,
+      installments: event.installments || 0,
+      hasInstallments: event.hasInstallments || false,
+      discountCode: event.discountCode,
+      discountValue: event.discountValue || 0,
+      hoursSinceLastEvent
     };
 
-    // Envia para n8n
+    if (event.eventType === 'purchase') {
+      payload.recovered = hadRecovery;
+      payload.recoveryValue = hadRecovery ? (cart.totalValue || cart.cartValue || 0) : 0;
+      payload.recoveryStatus = recoveryEvent?.status || null;
+    }
+    
+    if (event.eventType === 'error') {
+      payload.statusCode = event.statusCode;
+      payload.errorMessage = event.errorMessage;
+    }
+
     await this.sendToN8N(payload);
 
-    // Se purchase com sucesso, remove da memória
     if (event.eventType === 'purchase' && !event.hasError) {
       this.carts.delete(cartId);
     }
@@ -129,7 +136,6 @@ export class EventMonitor extends EventEmitter {
 
   private async checkRecovery(): Promise<void> {
     const now = new Date();
-    const cartsToRecover: CartData[] = [];
 
     for (const cart of this.carts.values()) {
       if (cart.status === PurchaseStatus.COMPLETED) {
@@ -138,30 +144,19 @@ export class EventMonitor extends EventEmitter {
       }
 
       const hoursSinceLastEvent = (now.getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
-      let needsRecovery = false;
-      let timeoutHours = 0;
+      
+      const timeoutMap: Record<string, number> = {
+        [PurchaseStatus.COLD]: this.COLD_TIMEOUT_HOURS,
+        [PurchaseStatus.WARM]: this.WARM_TIMEOUT_HOURS,
+        [PurchaseStatus.HOT]: this.HOT_TIMEOUT_HOURS
+      };
+      const timeoutHours = timeoutMap[cart.status] || 0;
 
-      switch (cart.status) {
-        case PurchaseStatus.COLD:
-          timeoutHours = this.COLD_TIMEOUT_HOURS;
-          break;
-        case PurchaseStatus.WARM:
-          timeoutHours = this.WARM_TIMEOUT_HOURS;
-          break;
-        case PurchaseStatus.HOT:
-          timeoutHours = this.HOT_TIMEOUT_HOURS;
-          break;
-      }
-
-      needsRecovery = hoursSinceLastEvent >= timeoutHours && !this.hasSentRecovery(cart);
+      const needsRecovery = hoursSinceLastEvent >= timeoutHours && !this.hasSentRecovery(cart);
 
       if (needsRecovery) {
-        cartsToRecover.push(cart);
+        await this.sendRecovery(cart);
       }
-    }
-
-    for (const cart of cartsToRecover) {
-      await this.sendRecovery(cart);
     }
   }
 
@@ -170,27 +165,28 @@ export class EventMonitor extends EventEmitter {
   }
 
   private async sendRecovery(cart: CartData): Promise<void> {
-    const hoursSinceLastEvent = Math.floor((new Date().getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60));
-    const timestamp = new Date().toISOString();
+    const hoursSinceLastEvent = Math.floor((Date.now() - cart.lastEventAt.getTime()) / 3600000);
     
-    // Prepara payload em camelCase (padrão JSON) - o n8n pode mapear para PascalCase na planilha
-    const payload = {
-      timestamp: timestamp,
+    await this.sendToN8N({
+      eventId: randomUUID(),
+      timestamp: new Date().toISOString(),
       action: 'recovery',
       status: cart.status,
       cartId: cart.id,
-      userId: cart.userId || '',
-      userPhone: cart.userPhone || '',
-      userName: cart.userName || '',
-      productName: cart.productName || '',
+      userId: cart.userId,
+      userPhone: cart.userPhone,
+      userName: cart.userName,
+      userEmail: cart.userEmail,
+      userCPF: cart.userCPF,
+      productId: cart.productId,
+      productName: cart.productName,
+      productAuthor: cart.productAuthor,
+      productType: cart.productType,
       cartValue: cart.cartValue || 0,
-      currency: cart.currency || 'BRL',
-      hoursSinceLastEvent: hoursSinceLastEvent
-    };
+      currency: cart.currency,
+      hoursSinceLastEvent
+    });
 
-    await this.sendToN8N(payload);
-
-    // Marca que enviou
     cart.events.push({
       userId: cart.userId,
       userPhone: cart.userPhone,
@@ -204,27 +200,13 @@ export class EventMonitor extends EventEmitter {
 
   private async sendToN8N(data: any): Promise<void> {
     try {
-      // Garante que o timestamp sempre existe
-      if (!data.timestamp) {
-        data.timestamp = new Date().toISOString();
-      }
-
-      // Log do payload completo para debug
-      console.log(`📤 Enviando para n8n:`, JSON.stringify(data, null, 2));
-
-      const response = await axios.post(this.n8nWebhookUrl, data, {
+      await axios.post(this.n8nWebhookUrl, data, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 10000
       });
-      
-      console.log(`✅ Enviado para n8n: ${data.action} - ${data.status} - timestamp: ${data.timestamp}`);
-      console.log(`📥 Resposta n8n:`, response.status, response.statusText);
+      console.log(`✅ ${data.action} - ${data.status}`);
     } catch (error: any) {
-      console.error(`❌ Erro ao enviar para n8n: ${error.message}`);
-      if (error.response) {
-        console.error(`📥 Resposta de erro:`, error.response.status, error.response.data);
-      }
-      console.error(`📤 Payload que falhou:`, JSON.stringify(data, null, 2));
+      console.error(`❌ Erro: ${error.message}`);
     }
   }
 

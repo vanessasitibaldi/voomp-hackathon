@@ -24,69 +24,38 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
 
-
 app.post('/event', async (req, res) => {
   try {
-    const { userId, userPhone, eventType, ...rest } = req.body;
+    const { userId, eventType } = req.body;
 
     if (!userId || !eventType) {
-      return res.status(400).json({ 
-        error: 'Campos obrigatórios: userId e eventType' 
-      });
+      return res.status(400).json({ error: 'userId e eventType obrigatórios' });
     }
 
     const statusMap: Record<string, PurchaseStatus> = {
-      'cart': PurchaseStatus.COLD,
-      'begin_checkout': PurchaseStatus.WARM,
-      'add_payment_info': PurchaseStatus.HOT,
-      'purchase': PurchaseStatus.COMPLETED
+      cart: PurchaseStatus.COLD,
+      begin_checkout: PurchaseStatus.WARM,
+      add_payment_info: PurchaseStatus.HOT,
+      purchase: PurchaseStatus.COMPLETED,
+      error: PurchaseStatus.ERROR
     };
 
     const event: PurchaseEvent = {
-      userId,
-      userPhone: userPhone || '',
-      userName: rest.userName,
-      eventType,
+      ...req.body,
       status: statusMap[eventType] || PurchaseStatus.COLD,
-      productId: rest.productId,
-      productName: rest.productName,
-      productCategory: rest.productCategory,
-      cartValue: rest.cartValue,
-      currency: rest.currency || 'BRL',
-      paymentMethod: rest.paymentMethod,
-      paymentGateway: rest.paymentGateway,
-      installments: rest.installments,
-      discountCode: rest.discountCode,
-      discountValue: rest.discountValue,
-      error: rest.error ? {
-        code: rest.error.code,
-        message: rest.error.message,
-        type: rest.error.type || 'unknown',
-        gateway: rest.error.gateway,
-        paymentMethod: rest.error.paymentMethod
-      } : undefined,
-      hasError: rest.hasError || !!rest.error,
-      source: rest.source,
-      campaign: rest.campaign,
       timestamp: new Date(),
-      createdAt: new Date(),
-      metadata: rest.metadata || {}
+      createdAt: new Date()
     };
 
     await monitor.processEvent(event);
 
     res.json({ 
-      success: true, 
-      message: 'Evento processado com sucesso',
+      success: true,
       eventId: `${userId}_${Date.now()}`,
       status: event.status
     });
   } catch (error: any) {
-    console.error('Erro ao processar evento:', error);
-    res.status(500).json({ 
-      error: 'Erro ao processar evento',
-      message: error.message 
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
