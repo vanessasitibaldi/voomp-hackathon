@@ -1,5 +1,7 @@
 # ⚡ Resumo Rápido
 
+teste commit
+
 ## 🎯 O que faz?
 
 1. Salva todos os eventos no Google Sheets
@@ -7,12 +9,12 @@
 
 ## 📋 Status
 
-| Status | Quando Envia Mensagem |
-|--------|----------------------|
-| **COLD** | 24h sem checkout |
-| **WARM** | 3h sem pagamento |
-| **HOT** | 1h sem compra |
-| **COMPLETED** | Remove da memória |
+| Status        | Quando Envia Mensagem |
+| ------------- | --------------------- |
+| **COLD**      | 24h sem checkout      |
+| **WARM**      | 3h sem pagamento      |
+| **HOT**       | 1h sem compra         |
+| **COMPLETED** | Remove da memória     |
 
 ## 🔄 Fluxo
 
