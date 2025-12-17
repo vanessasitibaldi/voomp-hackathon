@@ -112,6 +112,68 @@ O monitor verifica a cada 1 hora e envia mensagem quando:
 
 ---
 
+## 💾 Persistência do userId com localStorage
+
+### Como Funciona?
+
+O sistema usa `localStorage` para manter o `userId` do usuário mesmo quando ele fecha o navegador. Isso permite rastrear corretamente quando um usuário retorna após receber uma mensagem de remarketing.
+
+### Fluxo de Persistência
+
+**1. Primeira visita:**
+```javascript
+// Verifica localStorage
+localStorage.getItem('voomp_userId') → null
+
+// Cria novo userId
+const userId = generateUserId(); // "abc123-def456"
+localStorage.setItem('voomp_userId', userId);
+```
+
+**2. Usuário fecha o navegador:**
+```javascript
+// localStorage mantém o userId ✅
+localStorage.getItem('voomp_userId') → "abc123-def456"
+```
+
+**3. Usuário retorna (após remarketing):**
+```javascript
+// Recupera o mesmo userId ✅
+const userId = getUserId(); // "abc123-def456"
+// Sistema reconhece que é o mesmo usuário!
+```
+
+**4. Compra concluída:**
+```javascript
+// Limpa o localStorage após compra bem-sucedida
+clearUserId();
+localStorage.getItem('voomp_userId') → null
+```
+
+### Benefícios
+
+✅ **Rastreamento correto**: Mesmo userId entre sessões  
+✅ **Privacidade**: Apenas o identificador é salvo (sem dados sensíveis)  
+✅ **Limpeza automática**: Remove após compra concluída  
+✅ **Fallback seguro**: Se localStorage não disponível, gera ID temporário  
+
+### O Que É Armazenado?
+
+```javascript
+// ✅ APENAS o userId (hash único)
+localStorage: {
+  "voomp_userId": "abc123-def456-ghi789"
+}
+
+// ❌ NUNCA armazena dados sensíveis:
+// - CPF
+// - Cartão de crédito
+// - CVV
+// - Endereço completo
+```
+
+---
+
 ## 🔄 Como Rastrear Recuperações
 
 ### Como Saber se o Usuário Retornou do Remarketing?

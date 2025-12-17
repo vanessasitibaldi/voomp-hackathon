@@ -1,7 +1,6 @@
 import { PaymentProps } from '@/types';
 import { useState } from 'react';
 
-
 export default function Payment({ 
   data, 
   onChange, 
@@ -17,22 +16,15 @@ export default function Payment({
     onChange({ ...data, [field]: value });
   };
 
-  // Captura valores do autocomplete do navegador
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>, field: string) => {
     if (e.target.value && e.target.value !== data[field]) {
       handleChange(field, e.target.value);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (simulateError) {
-      // Simula erro de pagamento para testar remarketing
-      onSubmit(true);
-    } else {
-      onSubmit(false);
-    }
+    onSubmit(simulateError);
   };
 
   return (

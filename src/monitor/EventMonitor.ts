@@ -2,17 +2,27 @@ import axios from 'axios';
 import { PurchaseStatus } from '../constants';
 import { PurchaseEvent, CartData } from '../types';
 
+/**
+ * Monitor de eventos de compra e recuperação de carrinhos abandonados
+ * 
+ * Responsabilidades:
+ * 1. Rastrear carrinhos em memória
+ * 2. Detectar carrinhos abandonados
+ * 3. Enviar eventos de recovery (remarketing)
+ * 4. Identificar compras recuperadas
+ * 5. Enviar todos os eventos para n8n/Google Sheets
+ */
 export class EventMonitor {
   private n8nWebhookUrl: string;
-  private carts: Map<string, CartData> = new Map();
+  private carts: Map<string, CartData> = new Map(); // Armazena carrinhos ativos
   private intervalId?: NodeJS.Timeout;
   private readonly checkInterval: number = 3600000; // 1 hora
 
-  // Timeouts para envio de recovery
+  // Tempo de espera antes de enviar recovery por status
   private readonly TIMEOUT_HOURS = {
-    [PurchaseStatus.COLD]: 24,
-    [PurchaseStatus.WARM]: 3,
-    [PurchaseStatus.HOT]: 1
+    [PurchaseStatus.COLD]: 24,  // Apenas cart → espera 24h
+    [PurchaseStatus.WARM]: 1,   // Begin_checkout → espera 3h
+    [PurchaseStatus.HOT]: 0.30     // Add_payment_info → espera 1h
   };
 
   constructor(n8nWebhookUrl: string, checkInterval?: number) {
@@ -20,22 +30,38 @@ export class EventMonitor {
     if (checkInterval) this.checkInterval = checkInterval;
   }
 
+  /**
+   * Inicia o monitoramento periódico de carrinhos abandonados
+   */
   start(): void {
-    console.log('🚀 Monitor iniciado');
+    console.log('🚀 Monitor de recovery iniciado');
     this.intervalId = setInterval(() => {
       this.checkRecovery();
     }, this.checkInterval);
   }
 
+  /**
+   * Para o monitoramento
+   */
   stop(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = undefined;
+      console.log('🛑 Monitor parado');
     }
   }
 
+  /**
+   * Processa um evento de compra (cart, begin_checkout, add_payment_info, purchase, error)
+   * 
+   * Fluxo:
+   * 1. Identifica o carrinho (cria se não existir)
+   * 2. Atualiza o carrinho com novos dados
+   * 3. Envia evento para n8n/Google Sheets
+   * 4. Remove carrinho da memória se compra foi concluída
+   */
   async processEvent(event: PurchaseEvent): Promise<void> {
-    const cartId = event.productId || 'default';
+    const cartId = `${event.userId}_${event.productId || 'default'}`;
     
     // Busca ou cria carrinho
     let cart = this.carts.get(cartId);
@@ -47,13 +73,14 @@ export class EventMonitor {
     // Atualiza dados do carrinho
     this.updateCart(cart, event);
     
-    // Prepara e envia dados para N8N
+    // Prepara e envia dados para n8n
     const payload = this.buildPayload(cart, event);
     await this.sendToN8N(payload);
 
-    // Remove carrinho se compra finalizada
+    // Remove carrinho da memória se compra foi finalizada com sucesso
     if (event.eventType === 'purchase' && !event.hasError) {
       this.carts.delete(cartId);
+      console.log(`🎉 Carrinho ${cartId} removido - compra concluída`);
     }
   }
 
@@ -98,7 +125,16 @@ export class EventMonitor {
     cart.status = this.determineStatus(cart);
   }
 
+  /**
+   * Constrói o payload que será enviado para n8n/Google Sheets
+   * 
+   * Campos importantes:
+   * - recovered: true se usuário voltou após recovery (remarketing)
+   * - recoveryValue: valor da compra recuperada
+   * - hoursSinceLastEvent: tempo desde último evento
+   */
   private buildPayload(cart: CartData, event: PurchaseEvent): any {
+    // Verifica se já foi enviado recovery para este carrinho
     const hadRecovery = cart.events.some(e => e.metadata?.recoverySent);
     const hoursSinceLastEvent = Math.floor((Date.now() - cart.lastEventAt.getTime()) / 3600000);
 
@@ -127,13 +163,14 @@ export class EventMonitor {
       hoursSinceLastEvent
     };
 
-    // Adiciona dados específicos de compra finalizada
+    // Se é uma compra, adiciona informações de recovery
     if (event.eventType === 'purchase') {
-      payload.recovered = hadRecovery;
+      payload.recovered = hadRecovery; // true = voltou do remarketing
       payload.recoveryValue = hadRecovery ? (cart.totalValue || cart.cartValue || 0) : 0;
+      payload.recoveryStatus = hadRecovery ? cart.status : null;
     }
     
-    // Adiciona dados de erro
+    // Se é um erro, adiciona detalhes
     if (event.eventType === 'error') {
       payload.statusCode = event.statusCode || 0;
       payload.errorMessage = event.errorMessage || '';
@@ -153,29 +190,52 @@ export class EventMonitor {
     return PurchaseStatus.COLD;
   }
 
+  /**
+   * Verifica carrinhos abandonados e envia mensagens de recovery
+   * 
+   * Executado periodicamente (a cada 1 hora por padrão)
+   * 
+   * Timeouts:
+   * - COLD (cart): 24h
+   * - WARM (begin_checkout): 3h
+   * - HOT (add_payment_info): 1h
+   */
   private async checkRecovery(): Promise<void> {
+    console.log(`🔍 Verificando ${this.carts.size} carrinhos...`);
+    
     for (const cart of this.carts.values()) {
-      // Remove carrinhos finalizados
+      // Remove carrinhos já finalizados
       if (cart.status === PurchaseStatus.COMPLETED) {
         this.carts.delete(cart.id);
         continue;
       }
 
-      // Verifica se precisa enviar recovery
+      // Calcula tempo desde último evento
       const hoursSinceLastEvent = (Date.now() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
       const timeoutHours = this.TIMEOUT_HOURS[cart.status] || 0;
       const alreadySentRecovery = cart.events.some(e => e.metadata?.recoverySent);
 
+      // Envia recovery se passou o tempo e ainda não enviou
       if (hoursSinceLastEvent >= timeoutHours && !alreadySentRecovery) {
+        console.log(`📧 Enviando recovery para carrinho ${cart.id} (${cart.status})`);
         await this.sendRecovery(cart);
       }
     }
   }
 
+  /**
+   * Envia evento de recovery (remarketing) para n8n
+   * 
+   * O n8n irá:
+   * 1. Salvar no Google Sheets
+   * 2. Enviar mensagem de WhatsApp para o usuário
+   * 
+   * Marca no histórico do carrinho que recovery foi enviado
+   */
   private async sendRecovery(cart: CartData): Promise<void> {
     const hoursSinceLastEvent = Math.floor((Date.now() - cart.lastEventAt.getTime()) / 3600000);
     
-    // Envia evento de recovery para N8N
+    // Envia evento de recovery para n8n
     await this.sendToN8N({
       timestamp: new Date().toISOString(),
       action: 'recovery',
@@ -195,7 +255,7 @@ export class EventMonitor {
       hoursSinceLastEvent
     });
 
-    // Marca que recovery foi enviado
+    // Marca no histórico que recovery foi enviado (usado para identificar compras recuperadas)
     cart.events.push({
       userId: cart.userId,
       userPhone: cart.userPhone,
@@ -203,20 +263,24 @@ export class EventMonitor {
       status: cart.status,
       timestamp: new Date(),
       createdAt: new Date(),
-      metadata: { recoverySent: true }
+      metadata: { recoverySent: true } // ⭐ Flag importante!
     } as PurchaseEvent);
   }
 
+  /**
+   * Envia dados para n8n via webhook
+   * 
+   * O n8n irá processar e salvar no Google Sheets
+   */
   private async sendToN8N(data: any): Promise<void> {
     try {
       await axios.post(this.n8nWebhookUrl, data, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 10000
       });
-      console.log(`✅ ${data.action} - ${data.status}`);
+      console.log(`✅ Evento enviado: ${data.action} [${data.status}]`);
     } catch (error: any) {
-      console.error(`❌ Erro: ${error.message}`);
+      console.error(`❌ Erro ao enviar para n8n: ${error.message}`);
     }
   }
-
 }

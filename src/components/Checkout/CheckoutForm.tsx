@@ -1,19 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
-import { CheckoutFormData, EventPayload } from '../../types';
+import { CheckoutFormData } from '../../types';
 import PersonalData from './PersonalData';
 import Address from './Address';
 import Payment from './Payment';
 import OrderSummary from './OrderSummary';
-import { generateUserId } from '../../utils/userId';
-
+import { getUserId, clearUserId } from '../../utils/userId';
 
 export default function CheckoutForm() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<Partial<CheckoutFormData>>({});
   const [loading, setLoading] = useState(false);
   
-  const [userId] = useState(() => generateUserId());
+  const [userId] = useState(() => getUserId());
   const cartEventSent = useRef(false);
 
   const productData = {
@@ -27,11 +26,9 @@ export default function CheckoutForm() {
     installmentValue: 199.70
   };
 
-  // CART - ao entrar na tela (envia apenas uma vez)
+  // Envia evento CART ao entrar na tela (apenas uma vez)
   useEffect(() => {
     if (cartEventSent.current) return;
-    
-    // Marca imediatamente para evitar dupla execução
     cartEventSent.current = true;
     
     const sendCartEvent = async () => {
@@ -47,15 +44,15 @@ export default function CheckoutForm() {
           cartValue: productData.value,
           currency: productData.currency
         });
-        console.log('📦 CART enviado');
+        console.log('📦 Evento CART enviado');
       } catch (error) {
-        console.error('❌ Erro cart:', error);
+        console.error('❌ Erro ao enviar CART:', error);
       }
     };
     sendCartEvent();
   }, []);
 
-  // BEGIN_CHECKOUT - ao clicar continuar no endereço (passo 2)
+  // Envia evento BEGIN_CHECKOUT ao continuar do endereço (passo 2)
   const handleBeginCheckout = async () => {
     try {
       await api.sendEvent({
@@ -72,20 +69,21 @@ export default function CheckoutForm() {
         cartValue: productData.value,
         currency: productData.currency
       });
-      console.log('🛒 BEGIN_CHECKOUT enviado');
+      console.log('🛒 Evento BEGIN_CHECKOUT enviado');
       setStep(3);
     } catch (error) {
-      console.error('❌ Erro begin_checkout:', error);
+      console.error('❌ Erro ao enviar BEGIN_CHECKOUT:', error);
       setStep(3);
     }
   };
 
-  // ADD_PAYMENT_INFO + PURCHASE - ao clicar "comprar agora" (passo 3)
-  const handlePurchase = async () => {
+  // Envia eventos ADD_PAYMENT_INFO + PURCHASE ao finalizar (passo 3)
+  const handlePurchase = async (hasError: boolean = false) => {
     setLoading(true);
     try {
-      // 1. Envia ADD_PAYMENT_INFO
       const selectedInstallments = formData.installments || productData.installments;
+      
+      // 1. Envia evento ADD_PAYMENT_INFO
       await api.sendEvent({
         userId,
         userPhone: formData.phone || '',
@@ -103,13 +101,11 @@ export default function CheckoutForm() {
         installments: selectedInstallments,
         hasInstallments: selectedInstallments > 1
       });
-      console.log('💳 ADD_PAYMENT_INFO enviado');
+      console.log('💳 Evento ADD_PAYMENT_INFO enviado');
 
-      // 2. Simula chamada API de pagamento
-      const paymentSuccess = Math.random() > 0.2; // 80% sucesso
-
-      if (paymentSuccess) {
-        // SUCCESS: envia PURCHASE
+      // 2. Simula processamento do pagamento
+      if (!hasError) {
+        // Sucesso: envia evento PURCHASE
         const discountValue = formData.discountCode ? productData.value * 0.1 : 0;
         const totalValue = productData.value - discountValue;
 
@@ -133,13 +129,16 @@ export default function CheckoutForm() {
           installments: selectedInstallments,
           hasInstallments: selectedInstallments > 1
         });
-        console.log('✅ PURCHASE enviado');
+        console.log('✅ Evento PURCHASE enviado');
+        
+        // Limpa userId do localStorage após compra bem-sucedida
+        clearUserId();
         
         alert('Compra realizada com sucesso!');
         setStep(1);
         setFormData({});
       } else {
-        // ERROR: envia evento de erro
+        // Erro: envia evento ERROR
         await api.sendEvent({
           userId,
           userPhone: formData.phone || '',
@@ -156,14 +155,14 @@ export default function CheckoutForm() {
           errorMessage: 'Cartão recusado - saldo insuficiente',
           paymentMethod: formData.paymentMethod || 'credit_card'
         });
-        console.log('❌ ERROR enviado');
+        console.log('❌ Evento ERROR enviado');
         
         alert('Erro ao processar pagamento: Cartão recusado');
       }
     } catch (error: any) {
-      console.error('❌ Erro ao processar:', error);
+      console.error('❌ Erro ao processar compra:', error);
       
-      // Envia ERROR em caso de exceção
+      // Envia evento ERROR em caso de exceção
       try {
         await api.sendEvent({
           userId,
@@ -176,7 +175,7 @@ export default function CheckoutForm() {
           errorMessage: error.message || 'Erro desconhecido'
         });
       } catch (e) {
-        console.error('Erro ao enviar evento de erro:', e);
+        console.error('❌ Erro ao enviar evento de erro:', e);
       }
       
       alert('Erro ao processar compra. Tente novamente.');
