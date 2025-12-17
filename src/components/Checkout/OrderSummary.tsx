@@ -1,48 +1,108 @@
 import { OrderSummaryProps } from "@/types";
+import { DsButton, DsTextField, DsTypography } from "@ds-cola/react";
 
-export default function OrderSummary({ productData, discountCode }: OrderSummaryProps) {
+export default function OrderSummary({
+  productData,
+  discountCode,
+}: OrderSummaryProps) {
+  const formatBRL = (value: number) =>
+    value.toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   return (
-    <div className="order-summary">
-      <h3>Resumo do Pedido</h3>
-      
-      <div className="order-item">
-        <div>
-          <strong>Você está assinando</strong>
-          <p>{productData.name}</p>
+    <div className="order-summary-container">
+      <div>
+        <div className="order-summary-header">
+          <img src="/secure.svg" alt="Compra 100% Segura" />
+          <DsTypography variant="title-small" weight="fontWeight-bold">
+            Compra 100% Segura
+          </DsTypography>
+        </div>
+
+        <div className="order-summary">
+          <div className="order-summary-title">
+            <DsTypography variant="title-small" weight="fontWeight-bold">
+              Detalhes da compra
+            </DsTypography>
+
+            <img
+              src="/banner_details.png"
+              alt="Banner do produto como vender seu peixe"
+            />
+            <DsTypography variant="body-large" weight="fontWeight-medium">
+              {productData.name}
+            </DsTypography>
+          </div>
+
+          <div className="order-summary-price">
+            <span>de: R$ {formatBRL(productData.fullPrice)}</span>
+
+            {discountCode && (
+              <div>
+                <span>Cupom aplicado</span>
+                <strong>{discountCode}</strong>
+              </div>
+            )}
+
+            <div className="price">
+              <DsTypography variant="title-small" weight="fontWeight-medium">
+                por:
+              </DsTypography>
+              <DsTypography variant="title-large" weight="fontWeight-bold">
+                R$ {formatBRL(productData.value)}
+              </DsTypography>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="order-item">
-        <span>Total do pedido</span>
-        <strong>R$ {productData.value.toFixed(2).replace('.', ',')}</strong>
-      </div>
-
-      {discountCode && (
-        <div className="order-item" style={{ color: '#198754' }}>
-          <span>Cupom aplicado</span>
-          <strong>{discountCode}</strong>
+      <div className="order-summary-cupom">
+        <DsTypography variant="title-small" weight="fontWeight-semibold">
+          Cupom de desconto
+        </DsTypography>
+        <div className="cupom-field">
+          <div className="form-group">
+            <input
+              type="text"
+              name="cupom"
+              value={discountCode || ""}
+              placeholder="Insira seu cupom"
+            />
+          </div>
+          <DsButton
+            value="Aplicar"
+            variant="contained"
+            color="secondary"
+            size="large"
+            dataTestId="button-coupom"
+            fullWidth
+          />
         </div>
-      )}
-
-      <div className="order-total">
-        <span>Total</span>
-        <span>R$ {productData.value.toFixed(2).replace('.', ',')}</span>
       </div>
 
-      <div style={{ marginTop: '24px', fontSize: '14px', color: '#666' }}>
-        <p><strong>Autor:</strong> Profinho Cursos e Treinamentos</p>
-        <p style={{ marginTop: '8px' }}>
-          <strong>E-mail:</strong> contato@professorviniciusoliveira.com.br
-        </p>
-        <p style={{ marginTop: '8px' }}>
-          <strong>Telefone:</strong> (21) 97092-2988
-        </p>
+      <div className="order-summary-button">
+        <DsButton
+          value="Finalizar compra"
+          color="success"
+          variant="contained"
+          dataTestId="button-primary"
+          size="large"
+          fullWidth
+        />
       </div>
 
-      <div style={{ marginTop: '24px', fontSize: '12px', color: '#999' }}>
-        <p>✓ Compra SEGURA</p>
-        <p>✓ Produto REVISADO</p>
-        <p>✓ Dados PROTEGIDOS</p>
+      <div>
+        <DsTypography
+          variant="caption"
+          weight="fontWeight-regular"
+          color="surface-onSurfaceVariant"
+        >
+          Ao clicar em 'Comprar agora', eu concordo (i) que a Voomp Creators
+          está processando este pedido em nome de In this Together (ii) com os
+          Termos (iii) que li e estou ciente da Política de Privacidade e (iv)
+          que sou maior de idade ou autorizado e acompanhado por um tutor legal.
+        </DsTypography>
       </div>
     </div>
   );
