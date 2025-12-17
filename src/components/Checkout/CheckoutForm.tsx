@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
 import { CheckoutFormData, EventPayload } from '../../types';
 import PersonalData from './PersonalData';
@@ -14,6 +14,7 @@ export default function CheckoutForm() {
   const [loading, setLoading] = useState(false);
   
   const [userId] = useState(() => generateUserId());
+  const cartEventSent = useRef(false);
 
   const productData = {
     id: 'pne_3_0_julho_2025',
@@ -26,8 +27,13 @@ export default function CheckoutForm() {
     installmentValue: 199.70
   };
 
-  // CART - ao entrar na tela
+  // CART - ao entrar na tela (envia apenas uma vez)
   useEffect(() => {
+    if (cartEventSent.current) return;
+    
+    // Marca imediatamente para evitar dupla execução
+    cartEventSent.current = true;
+    
     const sendCartEvent = async () => {
       try {
         await api.sendEvent({
@@ -79,6 +85,7 @@ export default function CheckoutForm() {
     setLoading(true);
     try {
       // 1. Envia ADD_PAYMENT_INFO
+      const selectedInstallments = formData.installments || productData.installments;
       await api.sendEvent({
         userId,
         userPhone: formData.phone || '',
@@ -93,8 +100,8 @@ export default function CheckoutForm() {
         cartValue: productData.value,
         currency: productData.currency,
         paymentMethod: formData.paymentMethod || 'credit_card',
-        installments: productData.installments,
-        hasInstallments: productData.installments > 1
+        installments: selectedInstallments,
+        hasInstallments: selectedInstallments > 1
       });
       console.log('💳 ADD_PAYMENT_INFO enviado');
 
@@ -123,8 +130,8 @@ export default function CheckoutForm() {
           discountCode: formData.discountCode || '',
           currency: productData.currency,
           paymentMethod: formData.paymentMethod || 'credit_card',
-          installments: productData.installments,
-          hasInstallments: productData.installments > 1
+          installments: selectedInstallments,
+          hasInstallments: selectedInstallments > 1
         });
         console.log('✅ PURCHASE enviado');
         

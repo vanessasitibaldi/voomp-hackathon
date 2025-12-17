@@ -17,6 +17,13 @@ export default function Payment({
     onChange({ ...data, [field]: value });
   };
 
+  // Captura valores do autocomplete do navegador
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>, field: string) => {
+    if (e.target.value && e.target.value !== data[field]) {
+      handleChange(field, e.target.value);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -61,8 +68,11 @@ export default function Payment({
             <label>Número do cartão</label>
             <input
               type="text"
+              name="cc-number"
+              autoComplete="cc-number"
               value={data.cardNumber || ''}
               onChange={(e) => handleChange('cardNumber', e.target.value)}
+              onBlur={(e) => handleBlur(e, 'cardNumber')}
               placeholder="Número do cartão"
               required
             />
@@ -72,8 +82,11 @@ export default function Payment({
             <label>Titular do cartão</label>
             <input
               type="text"
+              name="cc-name"
+              autoComplete="cc-name"
               value={data.cardName || ''}
               onChange={(e) => handleChange('cardName', e.target.value)}
+              onBlur={(e) => handleBlur(e, 'cardName')}
               placeholder="NOME COMPLETO"
               required
             />
@@ -84,8 +97,11 @@ export default function Payment({
               <label>Mês</label>
               <input
                 type="text"
+                name="cc-exp-month"
+                autoComplete="cc-exp-month"
                 value={data.cardMonth || ''}
                 onChange={(e) => handleChange('cardMonth', e.target.value)}
+                onBlur={(e) => handleBlur(e, 'cardMonth')}
                 placeholder="MM"
                 required
               />
@@ -94,8 +110,11 @@ export default function Payment({
               <label>Ano</label>
               <input
                 type="text"
+                name="cc-exp-year"
+                autoComplete="cc-exp-year"
                 value={data.cardYear || ''}
                 onChange={(e) => handleChange('cardYear', e.target.value)}
+                onBlur={(e) => handleBlur(e, 'cardYear')}
                 placeholder="AA"
                 required
               />
@@ -104,8 +123,11 @@ export default function Payment({
               <label>CVV</label>
               <input
                 type="text"
+                name="cc-csc"
+                autoComplete="cc-csc"
                 value={data.cardCvv || ''}
                 onChange={(e) => handleChange('cardCvv', e.target.value)}
+                onBlur={(e) => handleBlur(e, 'cardCvv')}
                 placeholder="CVV"
                 required
               />

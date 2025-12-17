@@ -1,23 +1,23 @@
 import axios from 'axios';
-import { EventEmitter } from 'events';
-import { randomUUID } from 'crypto';
 import { PurchaseStatus } from '../constants';
 import { PurchaseEvent, CartData } from '../types';
 
-export class EventMonitor extends EventEmitter {
+export class EventMonitor {
   private n8nWebhookUrl: string;
-  private checkInterval: number;
   private carts: Map<string, CartData> = new Map();
   private intervalId?: NodeJS.Timeout;
+  private readonly checkInterval: number = 3600000; // 1 hora
 
-  private readonly COLD_TIMEOUT_HOURS = 24;
-  private readonly WARM_TIMEOUT_HOURS = 3;
-  private readonly HOT_TIMEOUT_HOURS = 1;
+  // Timeouts para envio de recovery
+  private readonly TIMEOUT_HOURS = {
+    [PurchaseStatus.COLD]: 24,
+    [PurchaseStatus.WARM]: 3,
+    [PurchaseStatus.HOT]: 1
+  };
 
-  constructor(n8nWebhookUrl: string, checkInterval: number = 3600000) {
-    super();
+  constructor(n8nWebhookUrl: string, checkInterval?: number) {
     this.n8nWebhookUrl = n8nWebhookUrl;
-    this.checkInterval = checkInterval;
+    if (checkInterval) this.checkInterval = checkInterval;
   }
 
   start(): void {
@@ -35,49 +35,71 @@ export class EventMonitor extends EventEmitter {
   }
 
   async processEvent(event: PurchaseEvent): Promise<void> {
-    const cartId = `${event.userId}_${event.productId || 'default'}`;
+    const cartId = event.productId || 'default';
+    
+    // Busca ou cria carrinho
     let cart = this.carts.get(cartId);
-
     if (!cart) {
-      cart = {
-        id: cartId,
-        userId: event.userId,
-        userPhone: event.userPhone,
-        status: PurchaseStatus.COLD,
-        createdAt: event.createdAt,
-        lastEventAt: event.timestamp,
-        hasErrors: false,
-        errorCount: 0,
-        events: []
-      };
+      cart = this.createCart(cartId, event);
       this.carts.set(cartId, cart);
     }
 
-    Object.assign(cart, {
-      userName: event.userName || cart.userName,
-      userEmail: event.userEmail || cart.userEmail,
-      userCPF: event.userCPF || cart.userCPF,
-      productId: event.productId || cart.productId,
-      productName: event.productName || cart.productName,
-      productAuthor: event.productAuthor || cart.productAuthor,
-      productType: event.productType || cart.productType,
-      cartValue: event.cartValue || cart.cartValue,
-      totalValue: event.totalValue || cart.totalValue,
-      currency: event.currency || cart.currency || 'BRL',
-    });
+    // Atualiza dados do carrinho
+    this.updateCart(cart, event);
     
+    // Prepara e envia dados para N8N
+    const payload = this.buildPayload(cart, event);
+    await this.sendToN8N(payload);
+
+    // Remove carrinho se compra finalizada
+    if (event.eventType === 'purchase' && !event.hasError) {
+      this.carts.delete(cartId);
+    }
+  }
+
+  private createCart(cartId: string, event: PurchaseEvent): CartData {
+    return {
+      id: cartId,
+      userId: event.userId,
+      userPhone: event.userPhone,
+      status: PurchaseStatus.COLD,
+      createdAt: event.createdAt,
+      lastEventAt: event.timestamp,
+      hasErrors: false,
+      errorCount: 0,
+      events: []
+    };
+  }
+
+  private updateCart(cart: CartData, event: PurchaseEvent): void {
+    // Atualiza dados do usuário e produto (mantém valor anterior se novo estiver vazio)
+    cart.userPhone = event.userPhone || cart.userPhone;
+    cart.userName = event.userName || cart.userName;
+    cart.userEmail = event.userEmail || cart.userEmail;
+    cart.userCPF = event.userCPF || cart.userCPF;
+    cart.productId = event.productId || cart.productId;
+    cart.productName = event.productName || cart.productName;
+    cart.productAuthor = event.productAuthor || cart.productAuthor;
+    cart.productType = event.productType || cart.productType;
+    cart.cartValue = event.cartValue || cart.cartValue;
+    cart.totalValue = event.totalValue || cart.totalValue;
+    cart.currency = event.currency || cart.currency || 'BRL';
+    
+    // Registra erros
     if (event.hasError || event.error) {
       cart.hasErrors = true;
       cart.errorCount = (cart.errorCount || 0) + 1;
       cart.lastError = event.error;
     }
     
+    // Atualiza status e histórico
     cart.lastEventAt = event.timestamp;
     cart.events.push(event);
     cart.status = this.determineStatus(cart);
+  }
 
+  private buildPayload(cart: CartData, event: PurchaseEvent): any {
     const hadRecovery = cart.events.some(e => e.metadata?.recoverySent);
-    const recoveryEvent = hadRecovery ? cart.events.find(e => e.metadata?.recoverySent) : null;
     const hoursSinceLastEvent = Math.floor((Date.now() - cart.lastEventAt.getTime()) / 3600000);
 
     const payload: any = {
@@ -86,41 +108,38 @@ export class EventMonitor extends EventEmitter {
       status: cart.status,
       cartId: cart.id,
       userId: cart.userId,
-      userPhone: cart.userPhone,
-      userName: cart.userName,
-      userEmail: cart.userEmail,
-      userCPF: cart.userCPF,
-      productId: cart.productId,
-      productName: cart.productName,
-      productAuthor: cart.productAuthor,
-      productType: cart.productType,
+      userPhone: cart.userPhone || '',
+      userName: cart.userName || '',
+      userEmail: cart.userEmail || '',
+      userCPF: cart.userCPF || '',
+      productId: cart.productId || '',
+      productName: cart.productName || '',
+      productAuthor: cart.productAuthor || '',
+      productType: cart.productType || '',
       cartValue: cart.cartValue || 0,
-      totalValue: event.totalValue || cart.totalValue || 0,
-      currency: cart.currency,
-      paymentMethod: event.paymentMethod,
+      totalValue: cart.totalValue || 0,
+      currency: cart.currency || 'BRL',
+      paymentMethod: event.paymentMethod || '',
       installments: event.installments || 0,
       hasInstallments: event.hasInstallments || false,
-      discountCode: event.discountCode,
+      discountCode: event.discountCode || '',
       discountValue: event.discountValue || 0,
       hoursSinceLastEvent
     };
 
+    // Adiciona dados específicos de compra finalizada
     if (event.eventType === 'purchase') {
       payload.recovered = hadRecovery;
       payload.recoveryValue = hadRecovery ? (cart.totalValue || cart.cartValue || 0) : 0;
-      payload.recoveryStatus = recoveryEvent?.status || null;
     }
     
+    // Adiciona dados de erro
     if (event.eventType === 'error') {
-      payload.statusCode = event.statusCode;
-      payload.errorMessage = event.errorMessage;
+      payload.statusCode = event.statusCode || 0;
+      payload.errorMessage = event.errorMessage || '';
     }
 
-    await this.sendToN8N(payload);
-
-    if (event.eventType === 'purchase' && !event.hasError) {
-      this.carts.delete(cartId);
-    }
+    return payload;
   }
 
   private determineStatus(cart: CartData): PurchaseStatus {
@@ -135,58 +154,48 @@ export class EventMonitor extends EventEmitter {
   }
 
   private async checkRecovery(): Promise<void> {
-    const now = new Date();
-
     for (const cart of this.carts.values()) {
+      // Remove carrinhos finalizados
       if (cart.status === PurchaseStatus.COMPLETED) {
         this.carts.delete(cart.id);
         continue;
       }
 
-      const hoursSinceLastEvent = (now.getTime() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
-      
-      const timeoutMap: Record<string, number> = {
-        [PurchaseStatus.COLD]: this.COLD_TIMEOUT_HOURS,
-        [PurchaseStatus.WARM]: this.WARM_TIMEOUT_HOURS,
-        [PurchaseStatus.HOT]: this.HOT_TIMEOUT_HOURS
-      };
-      const timeoutHours = timeoutMap[cart.status] || 0;
+      // Verifica se precisa enviar recovery
+      const hoursSinceLastEvent = (Date.now() - cart.lastEventAt.getTime()) / (1000 * 60 * 60);
+      const timeoutHours = this.TIMEOUT_HOURS[cart.status] || 0;
+      const alreadySentRecovery = cart.events.some(e => e.metadata?.recoverySent);
 
-      const needsRecovery = hoursSinceLastEvent >= timeoutHours && !this.hasSentRecovery(cart);
-
-      if (needsRecovery) {
+      if (hoursSinceLastEvent >= timeoutHours && !alreadySentRecovery) {
         await this.sendRecovery(cart);
       }
     }
   }
 
-  private hasSentRecovery(cart: CartData): boolean {
-    return cart.events.some(e => e.metadata?.recoverySent === true);
-  }
-
   private async sendRecovery(cart: CartData): Promise<void> {
     const hoursSinceLastEvent = Math.floor((Date.now() - cart.lastEventAt.getTime()) / 3600000);
     
+    // Envia evento de recovery para N8N
     await this.sendToN8N({
-      eventId: randomUUID(),
       timestamp: new Date().toISOString(),
       action: 'recovery',
       status: cart.status,
       cartId: cart.id,
       userId: cart.userId,
-      userPhone: cart.userPhone,
-      userName: cart.userName,
-      userEmail: cart.userEmail,
-      userCPF: cart.userCPF,
-      productId: cart.productId,
-      productName: cart.productName,
-      productAuthor: cart.productAuthor,
-      productType: cart.productType,
+      userPhone: cart.userPhone || '',
+      userName: cart.userName || '',
+      userEmail: cart.userEmail || '',
+      userCPF: cart.userCPF || '',
+      productId: cart.productId || '',
+      productName: cart.productName || '',
+      productAuthor: cart.productAuthor || '',
+      productType: cart.productType || '',
       cartValue: cart.cartValue || 0,
-      currency: cart.currency,
+      currency: cart.currency || 'BRL',
       hoursSinceLastEvent
     });
 
+    // Marca que recovery foi enviado
     cart.events.push({
       userId: cart.userId,
       userPhone: cart.userPhone,

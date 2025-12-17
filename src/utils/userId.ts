@@ -5,7 +5,7 @@
 export function generateUserId(): string {
   // Tenta usar crypto.randomUUID() se disponível (navegadores modernos)
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return `user_${crypto.randomUUID()}`;
+    return crypto.randomUUID();
   }
 
   // Fallback: gera um hash usando timestamp + números aleatórios
@@ -16,5 +16,5 @@ export function generateUserId(): string {
   // Combina tudo e cria um hash simples
   const hash = `${timestamp}_${random}${random2}`;
   
-  return `user_${hash}`;
+  return hash;
 }

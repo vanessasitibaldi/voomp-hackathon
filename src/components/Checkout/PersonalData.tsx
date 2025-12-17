@@ -9,6 +9,13 @@ export default function PersonalData({ data, onChange, onNext }: PersonalDataPro
     onChange({ ...data, [field]: value });
   };
 
+  // Captura valores do autocomplete do navegador
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>, field: string) => {
+    if (e.target.value && e.target.value !== data[field]) {
+      handleChange(field, e.target.value);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (data.fullName && data.email && data.phone && data.cpf) {
@@ -24,8 +31,11 @@ export default function PersonalData({ data, onChange, onNext }: PersonalDataPro
         <label>Nome Completo</label>
         <input
           type="text"
+          name="name"
+          autoComplete="name"
           value={data.fullName || ''}
           onChange={(e) => handleChange('fullName', e.target.value)}
+          onBlur={(e) => handleBlur(e, 'fullName')}
           placeholder="Digite seu nome completo"
           required
         />
@@ -35,8 +45,11 @@ export default function PersonalData({ data, onChange, onNext }: PersonalDataPro
         <label>E-mail</label>
         <input
           type="email"
+          name="email"
+          autoComplete="email"
           value={data.email || ''}
           onChange={(e) => handleChange('email', e.target.value)}
+          onBlur={(e) => handleBlur(e, 'email')}
           placeholder="E-mail que receberá o produto"
           required
         />
@@ -50,8 +63,11 @@ export default function PersonalData({ data, onChange, onNext }: PersonalDataPro
           </select>
           <input
             type="tel"
+            name="tel"
+            autoComplete="tel"
             value={data.phone || ''}
             onChange={(e) => handleChange('phone', e.target.value)}
+            onBlur={(e) => handleBlur(e, 'phone')}
             placeholder="Número do telefone"
             required
           />
@@ -62,8 +78,10 @@ export default function PersonalData({ data, onChange, onNext }: PersonalDataPro
         <label>CPF ou CNPJ</label>
         <input
           type="text"
+          name="cpf"
           value={data.cpf || ''}
           onChange={(e) => handleChange('cpf', e.target.value)}
+          onBlur={(e) => handleBlur(e, 'cpf')}
           placeholder="Doc. do titular da compra"
           required
         />
