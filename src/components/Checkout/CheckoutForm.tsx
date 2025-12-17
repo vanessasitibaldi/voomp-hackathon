@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "../../services/api";
 import { CheckoutFormData } from "../../types";
 import PersonalData from "./PersonalData";
-import Address from "./Address";
 import Payment from "./Payment";
 import OrderSummary from "./OrderSummary";
 import { getUserId, clearUserId } from "../../utils/userId";
 import CheckoutHeader from "./Header";
+import { validation } from "../../utils/validation";
 
 export default function CheckoutForm() {
   const [step, setStep] = useState(1);
@@ -15,6 +15,8 @@ export default function CheckoutForm() {
 
   const [userId] = useState(() => getUserId());
   const cartEventSent = useRef(false);
+  const beginCheckoutSent = useRef(false);
+  const addPaymentInfoSent = useRef(false);
 
   const productData = {
     id: "pne_3_0_julho_2025",
@@ -52,9 +54,80 @@ export default function CheckoutForm() {
       }
     };
     sendCartEvent();
+    console.table({
+      userId: userId,
+      userPhone: "",
+      eventType: "cart",
+      productId: productData.id,
+      productName: productData.name,
+      productAuthor: productData.author,
+      productType: productData.type,
+      cartValue: productData.value,
+      currency: productData.currency,
+    });
   }, []);
 
-  // Envia evento BEGIN_CHECKOUT ao continuar do endereço (passo 2)
+  // Envia evento BEGIN_CHECKOUT quando dados pessoais estão válidos
+  useEffect(() => {
+    if (beginCheckoutSent.current || !validation.isPersonalDataValid(formData))
+      return;
+    beginCheckoutSent.current = true;
+    handleBeginCheckout();
+  }, [formData]);
+
+  // Envia evento ADD_PAYMENT_INFO quando dados de pagamento estão válidos
+  useEffect(() => {
+    if (addPaymentInfoSent.current || !validation.isPaymentDataValid(formData))
+      return;
+    addPaymentInfoSent.current = true;
+
+    const sendAddPaymentInfo = async () => {
+      try {
+        const selectedInstallments =
+          formData.installments || productData.installments;
+        await api.sendEvent({
+          userId,
+          userPhone: formData.phone || "",
+          userName: formData.fullName || "",
+          userEmail: formData.email || "",
+          userCPF: formData.cpf || "",
+          eventType: "add_payment_info",
+          productId: productData.id,
+          productName: productData.name,
+          productAuthor: productData.author,
+          productType: productData.type,
+          cartValue: productData.value,
+          currency: productData.currency,
+          paymentMethod: formData.paymentMethod || "credit_card",
+          installments: selectedInstallments,
+          hasInstallments: selectedInstallments > 1,
+        });
+        console.log("💳 Evento ADD_PAYMENT_INFO enviado");
+      } catch (error) {
+        console.error("❌ Erro ao enviar ADD_PAYMENT_INFO:", error);
+      }
+    };
+    sendAddPaymentInfo();
+    console.table({
+      userId: userId,
+      userPhone: formData.phone || "",
+      userName: formData.fullName || "",
+      userEmail: formData.email || "",
+      userCPF: formData.cpf || "",
+      eventType: "add_payment_info",
+      productId: productData.id,
+      productName: productData.name,
+      productAuthor: productData.author,
+      productType: productData.type,
+      cartValue: productData.value,
+      currency: productData.currency,
+      paymentMethod: formData.paymentMethod || "credit_card",
+      installments: formData.installments || productData.installments,
+      hasInstallments: formData.installments || productData.installments > 1,
+    });
+  }, [formData]);
+
+  // Envia evento BEGIN_CHECKOUT quando dados pessoais estão válidos
   const handleBeginCheckout = async () => {
     try {
       await api.sendEvent({
@@ -72,47 +145,59 @@ export default function CheckoutForm() {
         currency: productData.currency,
       });
       console.log("🛒 Evento BEGIN_CHECKOUT enviado");
-      setStep(3);
     } catch (error) {
       console.error("❌ Erro ao enviar BEGIN_CHECKOUT:", error);
-      setStep(3);
     }
+    console.table({
+      userId,
+      userPhone: formData.phone || "",
+      userName: formData.fullName || "",
+      userEmail: formData.email || "",
+      userCPF: formData.cpf || "",
+      eventType: "begin_checkout",
+      productId: productData.id,
+      productName: productData.name,
+      productAuthor: productData.author,
+      productType: productData.type,
+      cartValue: productData.value,
+      currency: productData.currency,
+    });
   };
 
-  // Envia eventos ADD_PAYMENT_INFO + PURCHASE ao finalizar (passo 3)
+  // Envia evento PURCHASE ao finalizar compra
   const handlePurchase = async (hasError: boolean = false) => {
     setLoading(true);
     try {
       const selectedInstallments =
         formData.installments || productData.installments;
-
-      // 1. Envia evento ADD_PAYMENT_INFO
-      await api.sendEvent({
-        userId,
-        userPhone: formData.phone || "",
-        userName: formData.fullName || "",
-        userEmail: formData.email || "",
-        userCPF: formData.cpf || "",
-        eventType: "add_payment_info",
-        productId: productData.id,
-        productName: productData.name,
-        productAuthor: productData.author,
-        productType: productData.type,
-        cartValue: productData.value,
-        currency: productData.currency,
-        paymentMethod: formData.paymentMethod || "credit_card",
-        installments: selectedInstallments,
-        hasInstallments: selectedInstallments > 1,
-      });
-      console.log("💳 Evento ADD_PAYMENT_INFO enviado");
-
-      // 2. Simula processamento do pagamento
+      // Simula processamento do pagamento
       if (!hasError) {
         // Sucesso: envia evento PURCHASE
         const discountValue = formData.discountCode
           ? productData.value * 0.1
           : 0;
         const totalValue = productData.value - discountValue;
+
+        console.table({
+          userId,
+          userPhone: formData.phone || "",
+          userName: formData.fullName || "",
+          userEmail: formData.email || "",
+          userCPF: formData.cpf || "",
+          eventType: "purchase",
+          productId: productData.id,
+          productName: productData.name,
+          productAuthor: productData.author,
+          productType: productData.type,
+          cartValue: productData.value,
+          totalValue: totalValue,
+          discountValue: discountValue,
+          discountCode: formData.discountCode || "",
+          currency: productData.currency,
+          paymentMethod: formData.paymentMethod || "credit_card",
+          installments: selectedInstallments,
+          hasInstallments: selectedInstallments > 1,
+        });
 
         await api.sendEvent({
           userId,
@@ -203,7 +288,7 @@ export default function CheckoutForm() {
             data={formData}
             onChange={setFormData}
             productData={productData}
-            onBack={() => setStep(2)}
+            // onBack={() => setStep(2)}
             onSubmit={handlePurchase}
             loading={loading}
           />
@@ -245,6 +330,9 @@ export default function CheckoutForm() {
         <OrderSummary
           productData={productData}
           discountCode={formData.discountCode}
+          formData={formData}
+          onPurchase={() => handlePurchase(false)}
+          loading={loading}
         />
       </div>
     </div>

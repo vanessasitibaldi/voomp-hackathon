@@ -8,7 +8,7 @@ export default function Payment({
   data,
   onChange,
   productData,
-  onBack,
+  // onBack,
   onSubmit,
   loading,
 }: PaymentProps) {
@@ -49,7 +49,9 @@ export default function Payment({
       <div className="payment-methods">
         <button
           type="button"
-          className={paymentMethod === "credit_card" ? "active" : ""}
+          className={`${paymentMethod === "credit_card" ? "active" : ""} ${
+            !isPersonalDataValid ? "disabled" : ""
+          }`}
           onClick={() => {
             setPaymentMethod("credit_card");
             handleChange("paymentMethod", "credit_card");

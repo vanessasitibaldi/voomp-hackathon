@@ -6,4 +6,7 @@ export interface OrderSummaryProps {
     currency: string;
   };
   discountCode?: string;
+  formData?: any;
+  onPurchase?: () => void;
+  loading?: boolean;
 }

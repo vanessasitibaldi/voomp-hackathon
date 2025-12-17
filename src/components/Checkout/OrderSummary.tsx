@@ -1,9 +1,13 @@
 import { OrderSummaryProps } from "@/types";
 import { DsButton, DsTextField, DsTypography } from "@ds-cola/react";
+import { validation } from "@/utils/validation";
 
 export default function OrderSummary({
   productData,
   discountCode,
+  formData,
+  onPurchase,
+  loading,
 }: OrderSummaryProps) {
   const formatBRL = (value: number) =>
     value.toLocaleString("pt-BR", {
@@ -89,6 +93,8 @@ export default function OrderSummary({
           dataTestId="button-primary"
           size="large"
           fullWidth
+          disabled={!validation.isAllDataValid(formData) || loading}
+          onClick={onPurchase}
         />
       </div>
 

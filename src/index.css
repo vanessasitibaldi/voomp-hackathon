@@ -207,6 +207,11 @@ body {
   background-color: #fe00d433;
 }
 
+.payment-methods button.active.disabled {
+  border-color: #aaaaaa;
+  background-color: #aaaaaa33;
+}
+
 .order-summary-container {
   display: flex;
   flex-direction: column;
