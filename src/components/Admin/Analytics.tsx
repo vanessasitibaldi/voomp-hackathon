@@ -11,7 +11,7 @@ export default function Analytics() {
       buttonIcon: "auto_awesome",
     },
     iframe: {
-      src: "https://www.voompcreators.com.br/",
+      src: "https://lookerstudio.google.com/reporting/4e39865d-2b68-4517-bfb0-f59ad6d25452",
     },
   };
   const navbarItems = [
