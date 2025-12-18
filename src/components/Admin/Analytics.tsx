@@ -11,7 +11,7 @@ export default function Analytics() {
       buttonIcon: "auto_awesome",
     },
     iframe: {
-      src: "https://lookerstudio.google.com/reporting/4e39865d-2b68-4517-bfb0-f59ad6d25452",
+      src: "https://lookerstudio.google.com/embed/reporting/4e39865d-2b68-4517-bfb0-f59ad6d25452/page/co8iF",
     },
   };
   const navbarItems = [
@@ -106,11 +106,13 @@ export default function Analytics() {
             </div>
           </div>
           <iframe
-            src={contentData.iframe.src}
+            title="Analytics Dashboard"
             width="100%"
             height="100%"
+            src={contentData.iframe.src}
             style={{ border: "none" }}
-            title="Analytics Dashboard"
+            allowFullScreen
+            sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           ></iframe>
         </div>
       </div>
