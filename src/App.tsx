@@ -5,8 +5,11 @@ import Analytics from "./components/Admin/Analytics";
 import "./index.css";
 
 function App() {
+  const basename =
+    process.env.NODE_ENV === "production" ? "/voomp-whatsapp-monitor" : "";
+
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <ThemeProvider brand="Voomp" theme="light">
         <Routes>
           <Route path="/" element={<CheckoutForm />} />

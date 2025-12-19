@@ -5,6 +5,7 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   root: './src',
+  base: process.env.NODE_ENV === 'production' ? '/voomp-whatsapp-monitor/' : '/',
   build: {
     outDir: '../dist/public',
     emptyOutDir: true
